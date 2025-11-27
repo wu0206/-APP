@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { auth, db } from './firebase'; // 這裡改從你的 firebase.js 引入
+import { auth, db } from './firebase'; 
 import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { collection, doc, setDoc, deleteDoc, onSnapshot, query, orderBy } from 'firebase/firestore';
 import { 
@@ -8,19 +8,16 @@ import {
   Footprints, Train, Edit2, ExternalLink, Share2
 } from 'lucide-react';
 
-const appId = 'travel-planner-v1'; // 設定固定的 App ID
+const appId = 'travel-planner-v1'; 
 
 // Helper Functions
 const formatDate = (date) => date.toISOString().split('T')[0];
 const formatTime = (date) => date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 
 // --- Sub-Components ---
-
 const TransportItem = ({ stop, prevStop, onEdit }) => {
-  // 手機版優化：直接產生連結網址
   const getMapUrl = () => {
     if (!prevStop || !stop) return '#';
-    // 簡單的 Google Maps URL 結構
     return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(prevStop.name)}&destination=${encodeURIComponent(stop.name)}&travelmode=${stop.transportMode || 'driving'}`;
   };
 
@@ -34,7 +31,6 @@ const TransportItem = ({ stop, prevStop, onEdit }) => {
     <div className="ml-8 mb-4 relative group">
       <div className="absolute left-[-19px] top-[-10px] bottom-[-10px] w-0.5 bg-gray-200 z-0"></div>
       <div className="flex items-center gap-2">
-          {/* iOS 修正：使用 A 標籤確保能喚起地圖 App */}
           <a 
             href={getMapUrl()}
             target="_blank"
@@ -67,7 +63,6 @@ const TransportItem = ({ stop, prevStop, onEdit }) => {
 };
 
 const LocationItem = ({ stop, onEdit }) => {
-  // iOS 修正：使用 A 標籤開啟 Google 搜尋
   const googleSearchUrl = `https://www.google.com/search?q=${encodeURIComponent(stop.name)}`;
 
   return (
@@ -132,12 +127,12 @@ const LocationItem = ({ stop, onEdit }) => {
 };
 
 // --- Main App Component ---
-// ★★★ 重要修正：這裡加入了 export default ★★★
 export default function TravelPlanner() {
   const [user, setUser] = useState(null);
   const [trips, setTrips] = useState([]);
   const [currentTrip, setCurrentTrip] = useState(null);
   const [stops, setStops] = useState([]);
+  const [isSubmitting, setIsSubmitting] = useState(false); // 新增：防止重複提交與顯示狀態
 
   // Modal States
   const [isTripModalOpen, setIsTripModalOpen] = useState(false);
@@ -156,24 +151,40 @@ export default function TravelPlanner() {
 
   // --- Auth & Data Loading ---
   useEffect(() => {
-    // 使用 firebase.js 的 auth 進行匿名登入
-    signInAnonymously(auth).catch((error) => {
-        console.error("Auth Error:", error);
+    // 監聽登入狀態
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+        setUser(currentUser);
+        if (!currentUser) {
+            // 如果沒登入，嘗試匿名登入
+            signInAnonymously(auth).catch((error) => {
+                console.error("Auth Error:", error);
+                alert("無法連線到 Firebase 驗證，請檢查網路。\n錯誤代碼: " + error.code);
+            });
+        }
     });
-    
-    const unsubscribe = onAuthStateChanged(auth, setUser);
     return () => unsubscribe();
   }, []);
 
   // Load Trips
   useEffect(() => {
     if (!user) return;
-    const q = query(collection(db, 'artifacts', appId, 'users', user.uid, 'trips'), orderBy('createdAt', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const tripsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setTrips(tripsData);
-    }, (error) => console.error("Error fetching trips:", error));
-    return () => unsubscribe();
+    // 使用 try-catch 確保讀取失敗有反應
+    try {
+        const q = query(collection(db, 'artifacts', appId, 'users', user.uid, 'trips'), orderBy('createdAt', 'desc'));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+          const tripsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          setTrips(tripsData);
+        }, (error) => {
+            console.error("Error fetching trips:", error);
+            // 如果是權限錯誤，通常是因為 Firestore 規則沒設好
+            if (error.code === 'permission-denied') {
+                alert("讀取資料失敗：權限不足。\n請檢查 Firebase Console 的 Firestore Rules 是否已設為 Test Mode。");
+            }
+        });
+        return () => unsubscribe();
+    } catch (err) {
+        console.error("Setup error:", err);
+    }
   }, [user]);
 
   // Load Stops
@@ -263,7 +274,6 @@ export default function TravelPlanner() {
   const handleSaveStop = async (stopData) => {
     const stopsRef = collection(db, 'artifacts', appId, 'users', user.uid, `trips/${currentTrip.id}/stops`);
     
-    // Auto-adjust logic
     if (stopData.isFixedTime && stopData.fixedDate && stopData.fixedTime) {
         let prevStop = null;
         if (editingStop) {
@@ -349,13 +359,43 @@ export default function TravelPlanner() {
     URL.revokeObjectURL(url);
   };
 
+  // ★★★ 重要：新增旅程的邏輯修復與錯誤偵測 ★★★
   const handleCreateTrip = async () => {
-    if (!newTripTitle || !newTripDate) return;
-    const newDoc = doc(collection(db, 'artifacts', appId, 'users', user.uid, 'trips'));
-    await setDoc(newDoc, {
-      title: newTripTitle, date: newTripDate, durationDays: newTripDuration, startTime: '08:00', createdAt: Date.now()
-    });
-    setNewTripTitle(''); setNewTripDate(''); setIsTripModalOpen(false);
+    // 1. 檢查是否已登入
+    if (!user) {
+        alert("系統尚未完成登入，請稍候再試 (Firebase Auth Initializing...)");
+        return;
+    }
+
+    // 2. 檢查欄位
+    if (!newTripTitle || !newTripDate) {
+        alert("請填寫「旅程名稱」與「出發日期」！");
+        return;
+    }
+
+    setIsSubmitting(true); // 鎖定按鈕
+
+    try {
+        const newDoc = doc(collection(db, 'artifacts', appId, 'users', user.uid, 'trips'));
+        await setDoc(newDoc, {
+            title: newTripTitle, 
+            date: newTripDate, 
+            durationDays: newTripDuration, 
+            startTime: '08:00', 
+            createdAt: Date.now()
+        });
+        
+        // 成功後重置
+        setNewTripTitle(''); 
+        setNewTripDate(''); 
+        setIsTripModalOpen(false);
+    } catch (error) {
+        console.error("Create Trip Error:", error);
+        // 3. 顯示具體錯誤
+        alert(`新增失敗！\n錯誤原因：${error.message}\n(請檢查 Firebase Console 的 Rules 設定)`);
+    } finally {
+        setIsSubmitting(false); // 解鎖按鈕
+    }
   };
 
   const handleUpdateTransport = async (stopId, data) => {
@@ -364,7 +404,6 @@ export default function TravelPlanner() {
     setEditingTransport(null);
   };
   
-  // 修正：加大觸控區域，防止事件冒泡
   const handleDeleteTrip = async (e, tripId) => {
     e.stopPropagation();
     if (window.confirm('確定要刪除整個旅程嗎？此動作無法復原。')) {
@@ -385,7 +424,6 @@ export default function TravelPlanner() {
   // --- Render (Home View) ---
   if (!currentTrip) {
     return (
-      // 背景優化：更換為舒適的漸層
       <div className="min-h-screen bg-gradient-to-br from-teal-50 to-slate-100 pb-20 font-sans">
         <header className="bg-teal-700 text-white p-4 shadow-md sticky top-0 z-10 pt-safe">
           <h1 className="text-xl font-bold flex items-center gap-2"><MapPin className="w-6 h-6" /> 旅程規劃</h1>
@@ -425,16 +463,29 @@ export default function TravelPlanner() {
                     <input type="text" placeholder="例如: 東京五天四夜" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none transition-all" value={newTripTitle} onChange={e=>setNewTripTitle(e.target.value)} />
                   </div>
                   
-                  {/* iOS 日期輸入框修正 */}
+                  {/* iOS 日期修正 */}
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-1">出發日期</label>
-                    <input 
-                        type="date" 
-                        className="w-full p-3 bg-white border border-gray-200 rounded-lg appearance-none focus:ring-2 focus:ring-teal-500 outline-none text-gray-800"
-                        style={{ minHeight: '48px', WebkitAppearance: 'none' }} // 強制高度與移除 iOS 預設樣式
-                        value={newTripDate} 
-                        onChange={e=>setNewTripDate(e.target.value)} 
-                    />
+                    <div className="relative">
+                      <input 
+                          type="date" 
+                          value={newTripDate} 
+                          onChange={e=>setNewTripDate(e.target.value)}
+                          style={{
+                              appearance: 'none',
+                              WebkitAppearance: 'none',
+                              backgroundColor: '#ffffff',
+                              color: '#000000',
+                              opacity: 1,
+                              minHeight: '50px',
+                              padding: '12px',
+                              borderRadius: '8px',
+                              border: '1px solid #e5e7eb',
+                              width: '100%',
+                              display: 'block'
+                          }}
+                      />
+                    </div>
                   </div>
                   
                   <div>
@@ -445,7 +496,14 @@ export default function TravelPlanner() {
 
               <div className="flex gap-2 mt-6">
                   <button onClick={()=>setIsTripModalOpen(false)} className="flex-1 p-3 text-gray-500 hover:bg-gray-100 rounded-lg">取消</button>
-                  <button onClick={handleCreateTrip} disabled={!newTripTitle || !newTripDate} className="flex-1 p-3 bg-teal-600 text-white rounded-lg font-bold hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed">建立</button>
+                  {/* 按鈕狀態回饋 */}
+                  <button 
+                    onClick={handleCreateTrip} 
+                    disabled={isSubmitting}
+                    className={`flex-1 p-3 text-white rounded-lg font-bold shadow-lg transition-colors ${isSubmitting ? 'bg-gray-400 cursor-wait' : 'bg-teal-600 hover:bg-teal-700'}`}
+                  >
+                    {isSubmitting ? '處理中...' : '建立'}
+                  </button>
               </div>
             </div>
           </div>
@@ -491,7 +549,6 @@ export default function TravelPlanner() {
                     <div className="absolute left-[21px] top-4 bottom-4 w-0.5 bg-gray-200 z-0"></div>
                     {scheduledDays[dayNum].stops.map((stop, idx) => (
                         <div key={stop.id} className="relative z-10 mb-2">
-                            {/* Transport Logic */}
                             {idx > 0 && stops.findIndex(s => s.id === stop.id) > 0 && (
                                 <TransportItem stop={stop} prevStop={stops[stops.findIndex(s => s.id === stop.id) - 1]} onEdit={openEditTransportModal} />
                             )}
@@ -538,7 +595,6 @@ export default function TravelPlanner() {
 }
 
 // --- Modals ---
-
 function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDate, tripDuration, selectedDay }) {
   const [name, setName] = useState(initialData?.name || '');
   const [stayDuration, setStayDuration] = useState(initialData?.stayDuration || 1);
