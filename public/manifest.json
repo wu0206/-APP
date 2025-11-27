@@ -1,0 +1,15 @@
+{
+  "short_name": "旅程規劃",
+  "name": "我的旅程規劃助手",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#0f766e",
+  "background_color": "#ffffff"
+}
