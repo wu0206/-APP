@@ -10,15 +10,30 @@ import {
 
 const appId = 'travel-planner-v1'; 
 
-// Helper Functions
+// --- Helper Functions ---
 const formatDate = (date) => date.toISOString().split('T')[0];
-const formatTime = (date) => date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+
+// 強制 24 小時制顯示 (HH:MM)
+const formatTime = (date) => date.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+// 格式化日期分頁顯示 (例如: 11/27 週三)
+const formatTabDate = (dateStr) => {
+    const d = new Date(dateStr);
+    const month = d.getMonth() + 1;
+    const date = d.getDate();
+    const dayMap = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+    return `${month}/${date} ${dayMap[d.getDay()]}`;
+};
 
 // --- Sub-Components ---
-const TransportItem = ({ stop, prevStop, onEdit }) => {
-  const getMapUrl = () => {
-    if (!prevStop || !stop) return '#';
-    return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(prevStop.name)}&destination=${encodeURIComponent(stop.name)}&travelmode=${stop.transportMode || 'driving'}`;
+
+const TransportItem = ({ stop, onEdit }) => {
+  // 修改 4 (外層): 點擊這裡時，導航邏輯改為「當前位置 -> 下一個點」
+  // 使用 Google Maps Universal Link 的 dir (Directions) 模式，不指定 saddr 則預設為當前位置
+  const getCurrentLocNavUrl = () => {
+    if (!stop) return '#';
+    // destination 直接填入地點名稱
+    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(stop.name)}&travelmode=${stop.transportMode || 'driving'}`;
   };
 
   const handleEdit = (e) => {
@@ -31,8 +46,9 @@ const TransportItem = ({ stop, prevStop, onEdit }) => {
     <div className="ml-8 mb-4 relative group">
       <div className="absolute left-[-19px] top-[-10px] bottom-[-10px] w-0.5 bg-gray-200 z-0"></div>
       <div className="flex items-center gap-2">
+          {/* 使用新的導航 URL */}
           <a 
-            href={getMapUrl()}
+            href={getCurrentLocNavUrl()}
             target="_blank"
             rel="noopener noreferrer"
             className="flex-1 flex items-center justify-between p-3 rounded-xl border border-teal-400 bg-teal-50/80 text-teal-800 cursor-pointer hover:bg-teal-100 transition-colors shadow-sm no-underline"
@@ -45,6 +61,8 @@ const TransportItem = ({ stop, prevStop, onEdit }) => {
                 {stop.transportMode === 'walking' ? '步行' : 
                  stop.transportMode === 'transit' ? '大眾運輸' : '開車'} 
                  ・約 {stop.travelMinutes || 30} 分
+                 {/* 這裡可以加個小提示 ICON 表示是導航 */}
+                 <span className="text-[10px] ml-1 opacity-60">(導航)</span>
               </span>
             </div>
             <Navigation className="w-4 h-4 text-teal-600" />
@@ -70,6 +88,7 @@ const LocationItem = ({ stop, onEdit }) => {
       <div className="flex flex-col items-center gap-1 w-10 pt-1 shrink-0">
         <div className={`w-3 h-3 rounded-full ring-4 ring-white shadow-sm ${stop.isFixedTime ? 'bg-orange-500' : 'bg-teal-500'}`}></div>
         <span className="text-[10px] font-bold text-gray-500 mt-1 text-center leading-tight">
+            {/* 修改 3: 時間顯示已確保使用 formatTime (24h) */}
             {stop.calculatedArrival}
             <br/>
             <span className="text-gray-300 font-normal">抵達</span>
@@ -132,7 +151,7 @@ export default function TravelPlanner() {
   const [trips, setTrips] = useState([]);
   const [currentTrip, setCurrentTrip] = useState(null);
   const [stops, setStops] = useState([]);
-  const [isSubmitting, setIsSubmitting] = useState(false); // 新增：防止重複提交與顯示狀態
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Modal States
   const [isTripModalOpen, setIsTripModalOpen] = useState(false);
@@ -151,11 +170,9 @@ export default function TravelPlanner() {
 
   // --- Auth & Data Loading ---
   useEffect(() => {
-    // 監聽登入狀態
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
         setUser(currentUser);
         if (!currentUser) {
-            // 如果沒登入，嘗試匿名登入
             signInAnonymously(auth).catch((error) => {
                 console.error("Auth Error:", error);
                 alert("無法連線到 Firebase 驗證，請檢查網路。\n錯誤代碼: " + error.code);
@@ -168,7 +185,6 @@ export default function TravelPlanner() {
   // Load Trips
   useEffect(() => {
     if (!user) return;
-    // 使用 try-catch 確保讀取失敗有反應
     try {
         const q = query(collection(db, 'artifacts', appId, 'users', user.uid, 'trips'), orderBy('createdAt', 'desc'));
         const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -176,9 +192,8 @@ export default function TravelPlanner() {
           setTrips(tripsData);
         }, (error) => {
             console.error("Error fetching trips:", error);
-            // 如果是權限錯誤，通常是因為 Firestore 規則沒設好
             if (error.code === 'permission-denied') {
-                alert("讀取資料失敗：權限不足。\n請檢查 Firebase Console 的 Firestore Rules 是否已設為 Test Mode。");
+                alert("讀取資料失敗：權限不足。");
             }
         });
         return () => unsubscribe();
@@ -202,9 +217,10 @@ export default function TravelPlanner() {
   const calculateSchedule = (tripStops) => {
     if (!currentTrip || !tripStops.length || !currentTrip.date) return {};
     const startDateStr = currentTrip.date;
-    const startTimeStr = currentTrip.startTime || '08:00';
+    const startTimeStr = currentTrip.startTime || '08:00'; // 預設 08:00
     const tripDuration = currentTrip.durationDays || 1;
     
+    // 如果第一個點沒有指定時間，預設從 08:00 開始
     let currentTimeMs = new Date(`${startDateStr}T${startTimeStr}:00`).getTime();
     const daySchedules = {};
 
@@ -217,17 +233,25 @@ export default function TravelPlanner() {
 
     for (let i = 0; i < tripStops.length; i++) {
       const stop = tripStops[i];
+      
+      // 計算到達時間
       if (stop.isFixedTime && stop.fixedDate && stop.fixedTime) {
+          // 如果有指定時間，直接使用
           currentTimeMs = new Date(`${stop.fixedDate}T${stop.fixedTime}:00`).getTime();
       } else if (i > 0) {
+        // 如果不是第一個點且沒指定時間，加上交通時間
         const travelMinutes = stop.travelMinutes || 30;
         currentTimeMs += travelMinutes * 60000;
+      } else {
+        // 如果是第一個點且沒指定時間，currentTimeMs 已經是 08:00 (或上次設定的 startTime)
+        // 保持不變
       }
 
       let arrivalTime = new Date(currentTimeMs);
       const arrivalDay = getDayStart(formatDate(arrivalTime));
       let currentDayNum = Math.floor((arrivalDay.getTime() - tripStartDay.getTime()) / (1000 * 60 * 60 * 24)) + 1;
 
+      // 跨日邏輯
       if (!stop.isFixedTime && currentDayNum <= tripDuration) {
         if (arrivalTime.getHours() >= 22) {
           currentDayNum++;
@@ -246,8 +270,8 @@ export default function TravelPlanner() {
       const stopDateKey = formatDate(arrivalTime);
       const scheduledStop = {
           ...stop,
-          calculatedArrival: formatTime(arrivalTime),
-          calculatedDeparture: formatTime(departureTime),
+          calculatedArrival: formatTime(arrivalTime),   // HH:MM (24h)
+          calculatedDeparture: formatTime(departureTime), // HH:MM (24h)
           fullArrival: arrivalTime, 
           fullDeparture: departureTime, 
           day: currentDayNum,
@@ -274,6 +298,7 @@ export default function TravelPlanner() {
   const handleSaveStop = async (stopData) => {
     const stopsRef = collection(db, 'artifacts', appId, 'users', user.uid, `trips/${currentTrip.id}/stops`);
     
+    // Auto-adjust logic for fixed time
     if (stopData.isFixedTime && stopData.fixedDate && stopData.fixedTime) {
         let prevStop = null;
         if (editingStop) {
@@ -339,7 +364,7 @@ export default function TravelPlanner() {
         text += `=== 第 ${dayNum} 天 (${day.displayDate}) ===\n`;
         day.stops.forEach((stop, index) => {
             if (index > 0 && stop.travelMinutes) {
-                text += `   ⬇️ (${stop.transportMode === 'walking' ? '步行' : stop.transportMode === 'transit' ? '搭車' : '開車'} ${stop.travelMinutes}分)\n`;
+                text += `  ⬇️ (${stop.transportMode === 'walking' ? '步行' : stop.transportMode === 'transit' ? '搭車' : '開車'} ${stop.travelMinutes}分)\n`;
             }
             text += `● ${stop.calculatedArrival} - ${stop.calculatedDeparture} | ${stop.name}\n`;
             text += `   (停留 ${Number(stop.stayDuration).toFixed(1)}h)`;
@@ -359,21 +384,16 @@ export default function TravelPlanner() {
     URL.revokeObjectURL(url);
   };
 
-  // ★★★ 重要：新增旅程的邏輯修復與錯誤偵測 ★★★
   const handleCreateTrip = async () => {
-    // 1. 檢查是否已登入
     if (!user) {
         alert("系統尚未完成登入，請稍候再試 (Firebase Auth Initializing...)");
         return;
     }
-
-    // 2. 檢查欄位
     if (!newTripTitle || !newTripDate) {
         alert("請填寫「旅程名稱」與「出發日期」！");
         return;
     }
-
-    setIsSubmitting(true); // 鎖定按鈕
+    setIsSubmitting(true); 
 
     try {
         const newDoc = doc(collection(db, 'artifacts', appId, 'users', user.uid, 'trips'));
@@ -384,17 +404,14 @@ export default function TravelPlanner() {
             startTime: '08:00', 
             createdAt: Date.now()
         });
-        
-        // 成功後重置
         setNewTripTitle(''); 
         setNewTripDate(''); 
         setIsTripModalOpen(false);
     } catch (error) {
         console.error("Create Trip Error:", error);
-        // 3. 顯示具體錯誤
-        alert(`新增失敗！\n錯誤原因：${error.message}\n(請檢查 Firebase Console 的 Rules 設定)`);
+        alert(`新增失敗！\n錯誤原因：${error.message}`);
     } finally {
-        setIsSubmitting(false); // 解鎖按鈕
+        setIsSubmitting(false); 
     }
   };
 
@@ -448,7 +465,6 @@ export default function TravelPlanner() {
           </button>
         </main>
         
-        {/* 新增旅程 Modal */}
         {isTripModalOpen && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
             <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl">
@@ -463,7 +479,6 @@ export default function TravelPlanner() {
                     <input type="text" placeholder="例如: 東京五天四夜" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none transition-all" value={newTripTitle} onChange={e=>setNewTripTitle(e.target.value)} />
                   </div>
                   
-                  {/* iOS 日期修正 */}
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-1">出發日期</label>
                     <div className="relative">
@@ -496,7 +511,6 @@ export default function TravelPlanner() {
 
               <div className="flex gap-2 mt-6">
                   <button onClick={()=>setIsTripModalOpen(false)} className="flex-1 p-3 text-gray-500 hover:bg-gray-100 rounded-lg">取消</button>
-                  {/* 按鈕狀態回饋 */}
                   <button 
                     onClick={handleCreateTrip} 
                     disabled={isSubmitting}
@@ -527,13 +541,21 @@ export default function TravelPlanner() {
         </button>
       </header>
       
-      {/* Day Tabs */}
+      {/* Day Tabs - 修改 1: 使用日期顯示 */}
       <div className="bg-white px-4 pt-0 pb-0 shadow-sm sticky top-[64px] z-10 overflow-x-auto scrollbar-hide">
         <div className="flex space-x-2 min-w-max pb-2">
             <button onClick={() => setSelectedDay('All')} className={`py-2 px-4 text-sm rounded-full transition-colors ${selectedDay === 'All' ? 'bg-teal-100 text-teal-800 font-bold' : 'text-gray-500 hover:bg-gray-50'}`}>總覽</button>
-            {Array.from({ length: currentTrip.durationDays || 1 }).map((_, i) => (
-                <button key={i+1} onClick={() => setSelectedDay(i+1)} className={`py-2 px-4 text-sm rounded-full transition-colors ${selectedDay === i+1 ? 'bg-teal-100 text-teal-800 font-bold' : 'text-gray-500 hover:bg-gray-50'}`}>D{i+1}</button>
-            ))}
+            {Array.from({ length: currentTrip.durationDays || 1 }).map((_, i) => {
+                const tabDate = new Date(currentTrip.date);
+                tabDate.setDate(tabDate.getDate() + i);
+                const dateStr = formatTabDate(formatDate(tabDate));
+
+                return (
+                    <button key={i+1} onClick={() => setSelectedDay(i+1)} className={`py-2 px-4 text-sm rounded-full transition-colors ${selectedDay === i+1 ? 'bg-teal-100 text-teal-800 font-bold' : 'text-gray-500 hover:bg-gray-50'}`}>
+                        {dateStr}
+                    </button>
+                );
+            })}
         </div>
       </div>
       
@@ -542,15 +564,16 @@ export default function TravelPlanner() {
             <div key={dayNum} className="mb-8 animate-in slide-in-from-bottom-2 duration-500">
                 <div className="py-2 mb-4 sticky top-0 z-0">
                     <h2 className="text-lg font-bold text-teal-800 flex items-center gap-2 bg-slate-50/80 backdrop-blur-sm w-fit px-3 py-1 rounded-lg border border-teal-100">
-                        <Calendar className="w-4 h-4" /> 第 {dayNum} 天 <span className="text-gray-400 font-normal text-sm">| {scheduledDays[dayNum].displayDate}</span>
+                        <Calendar className="w-4 h-4" /> {scheduledDays[dayNum].displayDate} <span className="text-gray-400 font-normal text-sm"> (Day {dayNum})</span>
                     </h2>
                 </div>
                 <div className="flex flex-col relative pl-2">
                     <div className="absolute left-[21px] top-4 bottom-4 w-0.5 bg-gray-200 z-0"></div>
                     {scheduledDays[dayNum].stops.map((stop, idx) => (
                         <div key={stop.id} className="relative z-10 mb-2">
+                            {/* 修改 4: TransportItem 現在點擊會導航至下一站 */}
                             {idx > 0 && stops.findIndex(s => s.id === stop.id) > 0 && (
-                                <TransportItem stop={stop} prevStop={stops[stops.findIndex(s => s.id === stop.id) - 1]} onEdit={openEditTransportModal} />
+                                <TransportItem stop={stop} onEdit={openEditTransportModal} />
                             )}
                             <LocationItem stop={stop} onEdit={(s) => { setEditingStop(s); setIsStopModalOpen(true); }} />
                         </div>
@@ -599,13 +622,17 @@ function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDa
   const [name, setName] = useState(initialData?.name || '');
   const [stayDuration, setStayDuration] = useState(initialData?.stayDuration || 1);
   const [notes, setNotes] = useState(initialData?.notes || '');
+  
+  // 修改 2: 確保預設為 false (關閉)，除非編輯既有資料且該資料原本就是 true
   const [isFixedTime, setIsFixedTime] = useState(initialData?.isFixedTime || false);
+  
   const [fixedDate, setFixedDate] = useState(initialData?.fixedDate || tripStartDate);
   const [fixedTime, setFixedTime] = useState(initialData?.fixedTime || '08:00');
 
   useEffect(() => {
     if (!initialData && typeof selectedDay === 'number') {
-        setIsFixedTime(true);
+        // 修改 2: 新增行程時，即使選了某一天，也預設為「不指定時間」(false)
+        setIsFixedTime(false); 
         const d = new Date(tripStartDate);
         d.setDate(d.getDate() + selectedDay - 1);
         setFixedDate(formatDate(d));
@@ -615,10 +642,11 @@ function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDa
   const dayOptions = Array.from({ length: tripDuration || 1 }).map((_, i) => {
       const d = new Date(tripStartDate);
       d.setDate(d.getDate() + i);
+      const dateStr = formatDate(d);
       return {
           dayNum: i + 1,
-          dateStr: formatDate(d),
-          display: `第 ${i + 1} 天 (${d.toLocaleDateString('zh-TW', {month:'short', day:'numeric'})})`
+          dateStr: dateStr,
+          display: formatTabDate(dateStr) // 使用新的日期格式
       };
   });
 
@@ -716,6 +744,7 @@ function TransportModal({ isOpen, onClose, onSave, initialData }) {
     const prevStopName = initialData?.prevStopName;
     const currentStopName = initialData?.name;
     
+    // 修改 4 (內層): 這裡保持原樣，顯示「上一個點 -> 下一個點」的路線規劃
     const getGoogleMapsUrl = () => {
         if (!prevStopName || !currentStopName) return null;
         return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(prevStopName)}&destination=${encodeURIComponent(currentStopName)}&travelmode=${mode}`;
@@ -745,7 +774,7 @@ function TransportModal({ isOpen, onClose, onSave, initialData }) {
                             rel="noopener noreferrer" 
                             className="bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-xl font-bold text-center flex items-center justify-center gap-2 shadow-lg transition-colors no-underline block"
                         >
-                            <Navigation className="w-5 h-5" /> 1. 查看 Google 地圖
+                            <Navigation className="w-5 h-5" /> 1. 查看 Google 地圖 (路徑規劃)
                         </a>
                     )}
                 </div>
