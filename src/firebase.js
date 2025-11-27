@@ -5,12 +5,12 @@ import { getFirestore } from 'firebase/firestore';
 
 // ★★★ 請將下方的設定換成你自己的 Firebase Config ★★★
 const firebaseConfig = {
-  apiKey: "你的_API_KEY",
-  authDomain: "你的_PROJECT_ID.firebaseapp.com",
-  projectId: "你的_PROJECT_ID",
-  storageBucket: "你的_PROJECT_ID.firebasestorage.app",
-  messagingSenderId: "你的_SENDER_ID",
-  appId: "你的_APP_ID"
+  apiKey: "AIzaSyB8HJSxbUYWPWt_LKoZMzQdSiA1gQMJvlA",
+  authDomain: "tourism-planning-e7e44.firebaseapp.com",
+  projectId: "tourism-planning-e7e44",
+  storageBucket: "tourism-planning-e7e44.firebasestorage.app",
+  messagingSenderId: "725312679774",
+  appId: "1:725312679774:web:93be49bdc30a4c5a71a9cf"
 };
 
 const app = initializeApp(firebaseConfig);
