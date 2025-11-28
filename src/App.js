@@ -1,22 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { auth, db } from './firebase'; 
-import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { signInAnonymously, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 import { collection, doc, setDoc, deleteDoc, onSnapshot, query, orderBy } from 'firebase/firestore';
 import { 
   MapPin, Clock, Navigation, Plus, 
   Calendar, ArrowRight, Car, Trash2, X,
-  Footprints, Train, Edit2, ExternalLink, Share2
+  Footprints, Train, Edit2, ExternalLink, Share2, LogIn, User, Coffee
 } from 'lucide-react';
 
 const appId = 'travel-planner-v1'; 
 
 // --- Helper Functions ---
 const formatDate = (date) => date.toISOString().split('T')[0];
-
-// 強制 24 小時制顯示 (HH:MM)
 const formatTime = (date) => date.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false });
 
-// 格式化日期分頁顯示 (例如: 11/27 週三)
 const formatTabDate = (dateStr) => {
     const d = new Date(dateStr);
     const month = d.getMonth() + 1;
@@ -25,14 +22,11 @@ const formatTabDate = (dateStr) => {
     return `${month}/${date} ${dayMap[d.getDay()]}`;
 };
 
-// --- Sub-Components ---
+// --- Sub-Components (Cozy Style) ---
 
 const TransportItem = ({ stop, onEdit }) => {
-  // 修改 4 (外層): 點擊這裡時，導航邏輯改為「當前位置 -> 下一個點」
-  // 使用 Google Maps Universal Link 的 dir (Directions) 模式，不指定 saddr 則預設為當前位置
   const getCurrentLocNavUrl = () => {
     if (!stop) return '#';
-    // destination 直接填入地點名稱
     return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(stop.name)}&travelmode=${stop.transportMode || 'driving'}`;
   };
 
@@ -44,33 +38,33 @@ const TransportItem = ({ stop, onEdit }) => {
 
   return (
     <div className="ml-8 mb-4 relative group">
-      <div className="absolute left-[-19px] top-[-10px] bottom-[-10px] w-0.5 bg-gray-200 z-0"></div>
+      {/* 虛線時間軸：模擬縫線效果 */}
+      <div className="absolute left-[-19px] top-[-10px] bottom-[-10px] w-0 border-l-2 border-dashed border-[#dcd7c9] z-0"></div>
+      
       <div className="flex items-center gap-2">
-          {/* 使用新的導航 URL */}
           <a 
             href={getCurrentLocNavUrl()}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex-1 flex items-center justify-between p-3 rounded-xl border border-teal-400 bg-teal-50/80 text-teal-800 cursor-pointer hover:bg-teal-100 transition-colors shadow-sm no-underline"
+            className="flex-1 flex items-center justify-between p-3 rounded-xl border border-[#e6e2d3] bg-[#fdfbf7] text-[#6b615b] cursor-pointer hover:bg-[#f4f1ea] transition-colors shadow-sm no-underline"
           >
             <div className="flex items-center gap-2">
-              {stop.transportMode === 'walking' ? <Footprints className="w-4 h-4" /> : 
-               stop.transportMode === 'transit' ? <Train className="w-4 h-4" /> :
-               <Car className="w-4 h-4" />}
-              <span className="text-sm font-medium">
+              {stop.transportMode === 'walking' ? <Footprints className="w-4 h-4 text-[#a3978b]" /> : 
+               stop.transportMode === 'transit' ? <Train className="w-4 h-4 text-[#a3978b]" /> :
+               <Car className="w-4 h-4 text-[#a3978b]" />}
+              <span className="text-sm font-medium tracking-wide">
                 {stop.transportMode === 'walking' ? '步行' : 
                  stop.transportMode === 'transit' ? '大眾運輸' : '開車'} 
                  ・約 {stop.travelMinutes || 30} 分
-                 {/* 這裡可以加個小提示 ICON 表示是導航 */}
                  <span className="text-[10px] ml-1 opacity-60">(導航)</span>
               </span>
             </div>
-            <Navigation className="w-4 h-4 text-teal-600" />
+            <Navigation className="w-4 h-4 text-[#8c9a8c]" />
           </a>
 
           <button 
             onClick={handleEdit}
-            className="p-3 bg-white border border-gray-200 rounded-full text-gray-500 hover:text-teal-600 hover:border-teal-400 shadow-sm transition-all active:scale-95"
+            className="p-3 bg-[#fdfbf7] border border-[#e6e2d3] rounded-full text-[#a3978b] hover:text-[#8c9a8c] hover:border-[#8c9a8c] shadow-sm transition-all active:scale-95"
             title="編輯交通方式"
           >
             <Edit2 className="w-4 h-4" />
@@ -86,16 +80,16 @@ const LocationItem = ({ stop, onEdit }) => {
   return (
     <div className="flex gap-3 relative z-10">
       <div className="flex flex-col items-center gap-1 w-10 pt-1 shrink-0">
-        <div className={`w-3 h-3 rounded-full ring-4 ring-white shadow-sm ${stop.isFixedTime ? 'bg-orange-500' : 'bg-teal-500'}`}></div>
-        <span className="text-[10px] font-bold text-gray-500 mt-1 text-center leading-tight">
-            {/* 修改 3: 時間顯示已確保使用 formatTime (24h) */}
+        {/* 時間點：使用大地色系圓點 */}
+        <div className={`w-3 h-3 rounded-full ring-4 ring-[#fdfbf7] shadow-sm ${stop.isFixedTime ? 'bg-[#d4a373]' : 'bg-[#a3b18a]'}`}></div>
+        <span className="text-[10px] font-bold text-[#8d837a] mt-1 text-center leading-tight font-mono">
             {stop.calculatedArrival}
             <br/>
-            <span className="text-gray-300 font-normal">抵達</span>
+            <span className="text-[#beb3a9] font-normal">抵達</span>
         </span>
       </div>
 
-      <div className={`flex-1 bg-white p-4 rounded-xl shadow-sm border flex gap-3 group transition-colors ${stop.isFixedTime ? 'border-orange-200' : 'border-gray-100 hover:border-teal-200'}`}>
+      <div className={`flex-1 bg-white p-4 rounded-xl shadow-[2px_2px_0px_rgba(230,226,211,0.6)] border flex gap-3 group transition-colors ${stop.isFixedTime ? 'border-[#eaddcf]' : 'border-[#e6e2d3] hover:border-[#a3b18a]'}`}>
         <a 
             href={googleSearchUrl}
             target="_blank"
@@ -103,38 +97,41 @@ const LocationItem = ({ stop, onEdit }) => {
             className="flex-1 cursor-pointer block no-underline"
         >
             <div className="flex justify-between items-start mb-2">
-              <h3 className="font-bold text-gray-800 text-lg leading-tight flex items-center gap-2">
+              <h3 className="font-bold text-[#4a4238] text-lg leading-tight flex items-center gap-2">
                   {stop.name}
-                  {stop.isFixedTime && <span className="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded border border-orange-200 whitespace-nowrap">指定時間</span>}
-                  <ExternalLink className="w-3 h-3 text-gray-300 opacity-50 group-hover:opacity-100 transition-opacity" />
+                  {stop.isFixedTime && <span className="text-[10px] bg-[#fff5eb] text-[#c49261] px-2 py-0.5 rounded-full border border-[#faeadd] whitespace-nowrap">指定時間</span>}
+                  <ExternalLink className="w-3 h-3 text-[#dcd7c9] opacity-50 group-hover:opacity-100 transition-opacity" />
               </h3>
             </div>
             
-            <div className="flex items-center gap-4 text-sm text-gray-500">
-              <div className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded">
+            <div className="flex items-center gap-4 text-sm text-[#8d837a]">
+              <div className="flex items-center gap-1 bg-[#f7f5f0] px-2 py-1 rounded text-[#6b615b]">
                 <Clock className="w-3 h-3" />
                 <span>停留 {Number(stop.stayDuration).toFixed(1).replace(/\.0$/, '')} 小時</span>
               </div>
-              <div className="text-xs text-gray-400">
+              <div className="text-xs text-[#b5a89e]">
                  {stop.calculatedDeparture} 離開
               </div>
             </div>
 
             {stop.notes && (
-                <p className="mt-2 text-xs text-gray-500 bg-yellow-50 p-2 rounded border border-yellow-100 inline-block">
-                    {stop.notes}
-                </p>
+                <div className="mt-3 relative">
+                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#e6e2d3] rounded-full"></div>
+                    <p className="pl-3 text-xs text-[#6b615b] leading-relaxed">
+                        {stop.notes}
+                    </p>
+                </div>
             )}
         </a>
 
-        <div className="flex flex-col gap-2 border-l pl-3 border-gray-100 justify-center">
+        <div className="flex flex-col gap-2 border-l pl-3 border-[#f0ece3] justify-center">
              <button 
                 onClick={(e) => { 
                     e.preventDefault();
                     e.stopPropagation(); 
                     onEdit(stop); 
                 }}
-                className="p-3 hover:bg-teal-50 rounded-lg text-gray-400 hover:text-teal-600 transition-colors"
+                className="p-3 hover:bg-[#f7f5f0] rounded-lg text-[#b5a89e] hover:text-[#8c9a8c] transition-colors"
                 title="編輯地點"
              >
                 <Edit2 className="w-5 h-5" />
@@ -173,14 +170,28 @@ export default function TravelPlanner() {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
         setUser(currentUser);
         if (!currentUser) {
-            signInAnonymously(auth).catch((error) => {
-                console.error("Auth Error:", error);
-                alert("無法連線到 Firebase 驗證，請檢查網路。\n錯誤代碼: " + error.code);
-            });
+            signInAnonymously(auth).catch((error) => console.error("Auth Error:", error));
         }
     });
     return () => unsubscribe();
   }, []);
+
+  const handleGoogleLogin = async () => {
+    const provider = new GoogleAuthProvider();
+    try {
+        await signInWithPopup(auth, provider);
+    } catch (error) {
+        console.error("Google Login Error:", error);
+        alert("Google 登入失敗: " + error.message);
+    }
+  };
+
+  const handleLogout = async () => {
+    if(window.confirm("確定要登出嗎？")) {
+        await signOut(auth);
+        window.location.reload(); 
+    }
+  }
 
   // Load Trips
   useEffect(() => {
@@ -190,12 +201,7 @@ export default function TravelPlanner() {
         const unsubscribe = onSnapshot(q, (snapshot) => {
           const tripsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
           setTrips(tripsData);
-        }, (error) => {
-            console.error("Error fetching trips:", error);
-            if (error.code === 'permission-denied') {
-                alert("讀取資料失敗：權限不足。");
-            }
-        });
+        }, (error) => {});
         return () => unsubscribe();
     } catch (err) {
         console.error("Setup error:", err);
@@ -217,10 +223,9 @@ export default function TravelPlanner() {
   const calculateSchedule = (tripStops) => {
     if (!currentTrip || !tripStops.length || !currentTrip.date) return {};
     const startDateStr = currentTrip.date;
-    const startTimeStr = currentTrip.startTime || '08:00'; // 預設 08:00
+    const startTimeStr = currentTrip.startTime || '08:00'; 
     const tripDuration = currentTrip.durationDays || 1;
     
-    // 如果第一個點沒有指定時間，預設從 08:00 開始
     let currentTimeMs = new Date(`${startDateStr}T${startTimeStr}:00`).getTime();
     const daySchedules = {};
 
@@ -234,24 +239,17 @@ export default function TravelPlanner() {
     for (let i = 0; i < tripStops.length; i++) {
       const stop = tripStops[i];
       
-      // 計算到達時間
       if (stop.isFixedTime && stop.fixedDate && stop.fixedTime) {
-          // 如果有指定時間，直接使用
           currentTimeMs = new Date(`${stop.fixedDate}T${stop.fixedTime}:00`).getTime();
       } else if (i > 0) {
-        // 如果不是第一個點且沒指定時間，加上交通時間
         const travelMinutes = stop.travelMinutes || 30;
         currentTimeMs += travelMinutes * 60000;
-      } else {
-        // 如果是第一個點且沒指定時間，currentTimeMs 已經是 08:00 (或上次設定的 startTime)
-        // 保持不變
       }
 
       let arrivalTime = new Date(currentTimeMs);
       const arrivalDay = getDayStart(formatDate(arrivalTime));
       let currentDayNum = Math.floor((arrivalDay.getTime() - tripStartDay.getTime()) / (1000 * 60 * 60 * 24)) + 1;
 
-      // 跨日邏輯
       if (!stop.isFixedTime && currentDayNum <= tripDuration) {
         if (arrivalTime.getHours() >= 22) {
           currentDayNum++;
@@ -270,8 +268,8 @@ export default function TravelPlanner() {
       const stopDateKey = formatDate(arrivalTime);
       const scheduledStop = {
           ...stop,
-          calculatedArrival: formatTime(arrivalTime),   // HH:MM (24h)
-          calculatedDeparture: formatTime(departureTime), // HH:MM (24h)
+          calculatedArrival: formatTime(arrivalTime),   
+          calculatedDeparture: formatTime(departureTime), 
           fullArrival: arrivalTime, 
           fullDeparture: departureTime, 
           day: currentDayNum,
@@ -298,7 +296,6 @@ export default function TravelPlanner() {
   const handleSaveStop = async (stopData) => {
     const stopsRef = collection(db, 'artifacts', appId, 'users', user.uid, `trips/${currentTrip.id}/stops`);
     
-    // Auto-adjust logic for fixed time
     if (stopData.isFixedTime && stopData.fixedDate && stopData.fixedTime) {
         let prevStop = null;
         if (editingStop) {
@@ -364,7 +361,7 @@ export default function TravelPlanner() {
         text += `=== 第 ${dayNum} 天 (${day.displayDate}) ===\n`;
         day.stops.forEach((stop, index) => {
             if (index > 0 && stop.travelMinutes) {
-                text += `  ⬇️ (${stop.transportMode === 'walking' ? '步行' : stop.transportMode === 'transit' ? '搭車' : '開車'} ${stop.travelMinutes}分)\n`;
+                text += `   ⬇️ (${stop.transportMode === 'walking' ? '步行' : stop.transportMode === 'transit' ? '搭車' : '開車'} ${stop.travelMinutes}分)\n`;
             }
             text += `● ${stop.calculatedArrival} - ${stop.calculatedDeparture} | ${stop.name}\n`;
             text += `   (停留 ${Number(stop.stayDuration).toFixed(1)}h)`;
@@ -386,7 +383,7 @@ export default function TravelPlanner() {
 
   const handleCreateTrip = async () => {
     if (!user) {
-        alert("系統尚未完成登入，請稍候再試 (Firebase Auth Initializing...)");
+        alert("系統尚未完成登入，請稍候再試");
         return;
     }
     if (!newTripTitle || !newTripDate) {
@@ -441,46 +438,61 @@ export default function TravelPlanner() {
   // --- Render (Home View) ---
   if (!currentTrip) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-teal-50 to-slate-100 pb-20 font-sans">
-        <header className="bg-teal-700 text-white p-4 shadow-md sticky top-0 z-10 pt-safe">
-          <h1 className="text-xl font-bold flex items-center gap-2"><MapPin className="w-6 h-6" /> 旅程規劃</h1>
+      // 風格修改：米白色紙張背景
+      <div className="min-h-screen bg-[#fdfbf7] pb-20 font-sans text-[#4a4238]">
+        {/* Header: 暖灰色調 */}
+        <header className="bg-[#e8e4d9] text-[#4a4238] p-4 shadow-sm sticky top-0 z-10 pt-safe flex justify-between items-center border-b border-[#dcd7c9]">
+          <h1 className="text-xl font-bold flex items-center gap-2 tracking-wide"><Coffee className="w-6 h-6 text-[#8c9a8c]" /> 旅程手帳</h1>
+          
+          <div>
+              {user && !user.isAnonymous ? (
+                  <div className="flex items-center gap-2">
+                      <img src={user.photoURL} alt="Avatar" className="w-8 h-8 rounded-full border border-white shadow-sm" />
+                      <button onClick={handleLogout} className="text-xs bg-[#8c9a8c] px-2 py-1 rounded text-white hover:bg-[#7b8c7c]">登出</button>
+                  </div>
+              ) : (
+                  <button onClick={handleGoogleLogin} className="flex items-center gap-1 text-xs bg-white text-[#6b615b] border border-[#dcd7c9] px-3 py-1.5 rounded-full font-bold hover:bg-[#f4f1ea] transition-colors shadow-sm">
+                      <LogIn className="w-3 h-3" /> 登入同步
+                  </button>
+              )}
+          </div>
         </header>
         <main className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
           {trips.map(trip => (
-            <div key={trip.id} onClick={() => setCurrentTrip(trip)} className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 cursor-pointer hover:shadow-md relative group">
-              <h3 className="font-bold text-lg text-gray-800">{trip.title}</h3>
-              <p className="text-gray-500 text-sm mt-1 flex items-center gap-1"><Calendar className="w-4 h-4" /> {trip.date} • {trip.durationDays} 天</p>
+            <div key={trip.id} onClick={() => setCurrentTrip(trip)} className="bg-white rounded-xl shadow-[2px_2px_0px_rgba(200,190,180,0.4)] border border-[#e6e2d3] p-5 cursor-pointer hover:border-[#a3b18a] transition-colors relative group">
+              <h3 className="font-bold text-lg text-[#4a4238]">{trip.title}</h3>
+              <p className="text-[#8d837a] text-sm mt-2 flex items-center gap-1"><Calendar className="w-4 h-4" /> {trip.date} • {trip.durationDays} 天</p>
               
               <button 
                 onClick={(e) => handleDeleteTrip(e, trip.id)} 
-                className="absolute top-2 right-2 p-3 text-gray-300 hover:text-red-500 transition-colors z-20"
+                className="absolute top-2 right-2 p-3 text-[#d6d0c4] hover:text-[#e76f51] transition-colors z-20"
                 title="刪除旅程"
               >
                 <Trash2 className="w-5 h-5"/>
               </button>
             </div>
           ))}
-          <button onClick={() => setIsTripModalOpen(true)} className="border-2 border-dashed border-gray-300 bg-white/50 rounded-xl p-5 flex flex-col items-center justify-center text-gray-400 hover:border-teal-500 h-32 transition-colors">
+          <button onClick={() => setIsTripModalOpen(true)} className="border-2 border-dashed border-[#dcd7c9] bg-[#fdfbf7] rounded-xl p-5 flex flex-col items-center justify-center text-[#9c9288] hover:border-[#a3b18a] hover:text-[#a3b18a] h-32 transition-colors">
               <Plus className="w-8 h-8 mb-2" />新增旅程
           </button>
         </main>
         
         {isTripModalOpen && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-bold text-gray-800">新增旅程</h3>
-                <button onClick={()=>setIsTripModalOpen(false)}><X className="w-5 h-5 text-gray-400"/></button>
+          <div className="fixed inset-0 bg-[#4a4238]/40 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+            <div className="bg-[#fdfbf7] rounded-2xl w-full max-w-sm p-6 shadow-xl border border-[#e6e2d3]">
+              <div className="flex justify-between items-center mb-6 border-b border-[#e6e2d3] pb-3">
+                <h3 className="text-lg font-bold text-[#4a4238]">新增旅程</h3>
+                <button onClick={()=>setIsTripModalOpen(false)}><X className="w-5 h-5 text-[#9c9288]"/></button>
               </div>
               
               <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-1">旅程名稱</label>
-                    <input type="text" placeholder="例如: 東京五天四夜" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none transition-all" value={newTripTitle} onChange={e=>setNewTripTitle(e.target.value)} />
+                    <label className="block text-sm font-bold text-[#6b615b] mb-1">旅程名稱</label>
+                    <input type="text" placeholder="例如: 京都散策" className="w-full p-3 bg-white border border-[#dcd7c9] rounded-lg focus:ring-2 focus:ring-[#a3b18a] outline-none transition-all placeholder-[#d6d0c4] text-[#4a4238]" value={newTripTitle} onChange={e=>setNewTripTitle(e.target.value)} />
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-1">出發日期</label>
+                    <label className="block text-sm font-bold text-[#6b615b] mb-1">出發日期</label>
                     <div className="relative">
                       <input 
                           type="date" 
@@ -490,12 +502,12 @@ export default function TravelPlanner() {
                               appearance: 'none',
                               WebkitAppearance: 'none',
                               backgroundColor: '#ffffff',
-                              color: '#000000',
+                              color: '#4a4238',
                               opacity: 1,
                               minHeight: '50px',
                               padding: '12px',
                               borderRadius: '8px',
-                              border: '1px solid #e5e7eb',
+                              border: '1px solid #dcd7c9',
                               width: '100%',
                               display: 'block'
                           }}
@@ -504,19 +516,19 @@ export default function TravelPlanner() {
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-1">天數</label>
-                    <input type="number" min="1" max="30" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none" value={newTripDuration} onChange={e=>setNewTripDuration(Number(e.target.value))} />
+                    <label className="block text-sm font-bold text-[#6b615b] mb-1">天數</label>
+                    <input type="number" min="1" max="30" className="w-full p-3 bg-white border border-[#dcd7c9] rounded-lg focus:ring-2 focus:ring-[#a3b18a] outline-none text-[#4a4238]" value={newTripDuration} onChange={e=>setNewTripDuration(Number(e.target.value))} />
                   </div>
               </div>
 
-              <div className="flex gap-2 mt-6">
-                  <button onClick={()=>setIsTripModalOpen(false)} className="flex-1 p-3 text-gray-500 hover:bg-gray-100 rounded-lg">取消</button>
+              <div className="flex gap-2 mt-8">
+                  <button onClick={()=>setIsTripModalOpen(false)} className="flex-1 p-3 text-[#8d837a] hover:bg-[#f4f1ea] rounded-lg border border-transparent hover:border-[#dcd7c9]">取消</button>
                   <button 
                     onClick={handleCreateTrip} 
                     disabled={isSubmitting}
-                    className={`flex-1 p-3 text-white rounded-lg font-bold shadow-lg transition-colors ${isSubmitting ? 'bg-gray-400 cursor-wait' : 'bg-teal-600 hover:bg-teal-700'}`}
+                    className={`flex-1 p-3 text-[#fdfbf7] rounded-lg font-bold shadow-sm transition-colors ${isSubmitting ? 'bg-[#b5a89e] cursor-wait' : 'bg-[#8c9a8c] hover:bg-[#7b8c7c]'}`}
                   >
-                    {isSubmitting ? '處理中...' : '建立'}
+                    {isSubmitting ? '紀錄中...' : '建立手帳'}
                   </button>
               </div>
             </div>
@@ -528,30 +540,30 @@ export default function TravelPlanner() {
 
   // --- Render (Details View) ---
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
-      <header className="bg-white px-4 py-3 shadow-sm sticky top-0 z-20 flex items-center gap-3 pt-safe">
-        <button onClick={() => setCurrentTrip(null)} className="p-2 hover:bg-gray-100 rounded-full transition-colors"><ArrowRight className="w-6 h-6 rotate-180 text-gray-600" /></button>
+    <div className="min-h-screen bg-[#fdfbf7] flex flex-col font-sans text-[#4a4238]">
+      <header className="bg-white px-4 py-3 shadow-sm sticky top-0 z-20 flex items-center gap-3 pt-safe border-b border-[#e6e2d3]">
+        <button onClick={() => setCurrentTrip(null)} className="p-2 hover:bg-[#f4f1ea] rounded-full transition-colors"><ArrowRight className="w-6 h-6 rotate-180 text-[#8d837a]" /></button>
         <div className="flex-1 overflow-hidden">
-            <h1 className="font-bold text-lg leading-tight truncate">{currentTrip.title}</h1>
-            <p className="text-xs text-gray-500">{currentTrip.date}</p>
+            <h1 className="font-bold text-lg leading-tight truncate text-[#4a4238]">{currentTrip.title}</h1>
+            <p className="text-xs text-[#9c9288] mt-0.5">{currentTrip.date}</p>
         </div>
-        <button onClick={handleExport} className="p-2 text-teal-600 hover:bg-teal-50 rounded-full" title="匯出行程"><Share2 className="w-5 h-5" /></button>
-        <button onClick={() => { setEditingStop(null); setIsStopModalOpen(true); }} className="bg-teal-600 text-white p-2 rounded-full shadow-lg hover:bg-teal-700 transition-transform active:scale-95">
+        <button onClick={handleExport} className="p-2 text-[#8c9a8c] hover:bg-[#f4f1ea] rounded-full" title="匯出行程"><Share2 className="w-5 h-5" /></button>
+        <button onClick={() => { setEditingStop(null); setIsStopModalOpen(true); }} className="bg-[#8c9a8c] text-white p-2 rounded-full shadow-md hover:bg-[#7b8c7c] transition-transform active:scale-95">
             <Plus className="w-6 h-6" />
         </button>
       </header>
       
-      {/* Day Tabs - 修改 1: 使用日期顯示 */}
-      <div className="bg-white px-4 pt-0 pb-0 shadow-sm sticky top-[64px] z-10 overflow-x-auto scrollbar-hide">
-        <div className="flex space-x-2 min-w-max pb-2">
-            <button onClick={() => setSelectedDay('All')} className={`py-2 px-4 text-sm rounded-full transition-colors ${selectedDay === 'All' ? 'bg-teal-100 text-teal-800 font-bold' : 'text-gray-500 hover:bg-gray-50'}`}>總覽</button>
+      {/* Day Tabs (Bookmarker Style) */}
+      <div className="bg-[#fdfbf7] px-4 pt-3 pb-0 sticky top-[64px] z-10 overflow-x-auto scrollbar-hide border-b border-[#e6e2d3]">
+        <div className="flex space-x-1 min-w-max">
+            <button onClick={() => setSelectedDay('All')} className={`py-2 px-4 text-sm rounded-t-lg transition-all border-t border-l border-r ${selectedDay === 'All' ? 'bg-white border-[#e6e2d3] text-[#4a4238] font-bold mb-[-1px] pb-3' : 'bg-[#f4f1ea] border-transparent text-[#9c9288] hover:bg-[#ebe7df]'}`}>總覽</button>
             {Array.from({ length: currentTrip.durationDays || 1 }).map((_, i) => {
                 const tabDate = new Date(currentTrip.date);
                 tabDate.setDate(tabDate.getDate() + i);
                 const dateStr = formatTabDate(formatDate(tabDate));
 
                 return (
-                    <button key={i+1} onClick={() => setSelectedDay(i+1)} className={`py-2 px-4 text-sm rounded-full transition-colors ${selectedDay === i+1 ? 'bg-teal-100 text-teal-800 font-bold' : 'text-gray-500 hover:bg-gray-50'}`}>
+                    <button key={i+1} onClick={() => setSelectedDay(i+1)} className={`py-2 px-4 text-sm rounded-t-lg transition-all border-t border-l border-r ${selectedDay === i+1 ? 'bg-white border-[#e6e2d3] text-[#4a4238] font-bold mb-[-1px] pb-3' : 'bg-[#f4f1ea] border-transparent text-[#9c9288] hover:bg-[#ebe7df]'}`}>
                         {dateStr}
                     </button>
                 );
@@ -563,15 +575,14 @@ export default function TravelPlanner() {
         {Object.keys(scheduledDays).filter(d => selectedDay === 'All' || Number(d) === selectedDay).sort((a,b)=>a-b).map(dayNum => (
             <div key={dayNum} className="mb-8 animate-in slide-in-from-bottom-2 duration-500">
                 <div className="py-2 mb-4 sticky top-0 z-0">
-                    <h2 className="text-lg font-bold text-teal-800 flex items-center gap-2 bg-slate-50/80 backdrop-blur-sm w-fit px-3 py-1 rounded-lg border border-teal-100">
-                        <Calendar className="w-4 h-4" /> {scheduledDays[dayNum].displayDate} <span className="text-gray-400 font-normal text-sm"> (Day {dayNum})</span>
+                    <h2 className="text-lg font-bold text-[#6b615b] flex items-center gap-2 bg-[#fdfbf7]/90 backdrop-blur-sm w-fit px-3 py-1 rounded-lg border border-[#e6e2d3]">
+                        <Calendar className="w-4 h-4 text-[#8c9a8c]" /> {scheduledDays[dayNum].displayDate} 
                     </h2>
                 </div>
                 <div className="flex flex-col relative pl-2">
-                    <div className="absolute left-[21px] top-4 bottom-4 w-0.5 bg-gray-200 z-0"></div>
+                    {/* 背景虛線移到 Item 內部處理，這裡留白 */}
                     {scheduledDays[dayNum].stops.map((stop, idx) => (
                         <div key={stop.id} className="relative z-10 mb-2">
-                            {/* 修改 4: TransportItem 現在點擊會導航至下一站 */}
                             {idx > 0 && stops.findIndex(s => s.id === stop.id) > 0 && (
                                 <TransportItem stop={stop} onEdit={openEditTransportModal} />
                             )}
@@ -582,16 +593,16 @@ export default function TravelPlanner() {
             </div>
         ))}
         {stops.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-20 text-gray-300">
-                <div className="bg-white p-6 rounded-full shadow-sm mb-4">
-                    <MapPin className="w-12 h-12 text-teal-100" />
+            <div className="flex flex-col items-center justify-center py-20 text-[#d6d0c4]">
+                <div className="bg-white p-6 rounded-full shadow-[2px_2px_0px_rgba(200,190,180,0.3)] border border-[#e6e2d3] mb-4">
+                    <Coffee className="w-12 h-12 text-[#b5a89e]" />
                 </div>
-                <p>點擊右上角 + 開始規劃你的旅程</p>
+                <p>點擊右上角 + 開始寫下你的旅程</p>
             </div>
         )}
       </main>
 
-      {/* Edit Stop Modal */}
+      {/* Edit Stop Modal (Cozy Style) */}
       {isStopModalOpen && (
         <StopModal 
           isOpen={isStopModalOpen} 
@@ -617,21 +628,17 @@ export default function TravelPlanner() {
   );
 }
 
-// --- Modals ---
+// --- Modals (Cozy Theme) ---
 function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDate, tripDuration, selectedDay }) {
   const [name, setName] = useState(initialData?.name || '');
   const [stayDuration, setStayDuration] = useState(initialData?.stayDuration || 1);
   const [notes, setNotes] = useState(initialData?.notes || '');
-  
-  // 修改 2: 確保預設為 false (關閉)，除非編輯既有資料且該資料原本就是 true
   const [isFixedTime, setIsFixedTime] = useState(initialData?.isFixedTime || false);
-  
   const [fixedDate, setFixedDate] = useState(initialData?.fixedDate || tripStartDate);
   const [fixedTime, setFixedTime] = useState(initialData?.fixedTime || '08:00');
 
   useEffect(() => {
     if (!initialData && typeof selectedDay === 'number') {
-        // 修改 2: 新增行程時，即使選了某一天，也預設為「不指定時間」(false)
         setIsFixedTime(false); 
         const d = new Date(tripStartDate);
         d.setDate(d.getDate() + selectedDay - 1);
@@ -646,46 +653,46 @@ function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDa
       return {
           dayNum: i + 1,
           dateStr: dateStr,
-          display: formatTabDate(dateStr) // 使用新的日期格式
+          display: formatTabDate(dateStr) 
       };
   });
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-end md:items-center justify-center z-50 animate-in fade-in duration-200 backdrop-blur-sm">
-      <div className="bg-white w-full md:max-w-md rounded-t-2xl md:rounded-2xl p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
-        <div className="flex justify-between items-center mb-6">
-          <h3 className="text-xl font-bold text-gray-800">{initialData ? '編輯地點' : '新增地點'}</h3>
-          <button onClick={onClose} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X className="w-5 h-5 text-gray-500" /></button>
+    <div className="fixed inset-0 bg-[#4a4238]/40 flex items-end md:items-center justify-center z-50 animate-in fade-in duration-200 backdrop-blur-sm">
+      <div className="bg-[#fdfbf7] w-full md:max-w-md rounded-t-2xl md:rounded-2xl p-6 shadow-2xl overflow-y-auto max-h-[90vh] border border-[#e6e2d3]">
+        <div className="flex justify-between items-center mb-6 border-b border-[#e6e2d3] pb-3">
+          <h3 className="text-xl font-bold text-[#4a4238]">{initialData ? '編輯地點' : '新增地點'}</h3>
+          <button onClick={onClose} className="p-2 bg-[#f4f1ea] rounded-full hover:bg-[#ebe7df]"><X className="w-5 h-5 text-[#9c9288]" /></button>
         </div>
 
         <div className="space-y-5">
           <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1">地點名稱</label>
+            <label className="block text-sm font-bold text-[#6b615b] mb-1">地點名稱</label>
             <div className="relative">
-                <MapPin className="absolute left-3 top-3.5 w-5 h-5 text-gray-400" />
-                <input type="text" placeholder="例如: 淺草寺" className="w-full pl-10 p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none" value={name} onChange={(e) => setName(e.target.value)} />
+                <MapPin className="absolute left-3 top-3.5 w-5 h-5 text-[#b5a89e]" />
+                <input type="text" placeholder="例如: 淺草寺" className="w-full pl-10 p-3 bg-white border border-[#dcd7c9] rounded-xl focus:ring-2 focus:ring-[#a3b18a] outline-none text-[#4a4238]" value={name} onChange={(e) => setName(e.target.value)} />
             </div>
           </div>
 
-          <div className="border border-gray-200 rounded-xl p-3 bg-gray-50">
+          <div className="border border-[#dcd7c9] rounded-xl p-3 bg-white">
                <div className="flex items-center justify-between mb-2">
-                   <label className="text-sm font-bold text-gray-700 flex items-center gap-1">
+                   <label className="text-sm font-bold text-[#6b615b] flex items-center gap-1">
                         <Clock className="w-4 h-4" /> 指定開始時間
                    </label>
                    <input 
                       type="checkbox" 
                       checked={isFixedTime} 
                       onChange={(e) => setIsFixedTime(e.target.checked)}
-                      className="w-5 h-5 accent-teal-600"
+                      className="w-5 h-5 accent-[#8c9a8c]"
                    />
                </div>
                
                {isFixedTime ? (
                    <div className="grid grid-cols-2 gap-2 animate-in slide-in-from-top-2">
                        <select 
-                          className="p-2 border rounded-lg text-sm bg-white"
+                          className="p-2 border border-[#dcd7c9] rounded-lg text-sm bg-[#fdfbf7] text-[#4a4238]"
                           value={fixedDate}
                           onChange={(e) => setFixedDate(e.target.value)}
                        >
@@ -695,32 +702,32 @@ function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDa
                        </select>
                        <input 
                           type="time" 
-                          className="p-2 border rounded-lg text-sm bg-white"
+                          className="p-2 border border-[#dcd7c9] rounded-lg text-sm bg-[#fdfbf7] text-[#4a4238]"
                           value={fixedTime}
                           onChange={(e) => setFixedTime(e.target.value)}
                        />
                    </div>
                ) : (
-                   <p className="text-xs text-gray-400">關閉時，時間將依據上個行程自動計算。</p>
+                   <p className="text-xs text-[#9c9288]">關閉時，時間將依據上個行程自動計算。</p>
                )}
           </div>
 
           <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1">預計停留 (小時)</label>
+            <label className="block text-sm font-bold text-[#6b615b] mb-1">預計停留 (小時)</label>
             <div className="flex items-center gap-4">
-                <input type="range" min="0.5" max="8" step="0.5" value={stayDuration} onChange={(e) => setStayDuration(Number(e.target.value))} className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-teal-600" />
-                <span className="w-16 text-center font-bold text-teal-600 text-lg">{stayDuration} h</span>
+                <input type="range" min="0.5" max="8" step="0.5" value={stayDuration} onChange={(e) => setStayDuration(Number(e.target.value))} className="flex-1 h-2 bg-[#e6e2d3] rounded-lg appearance-none cursor-pointer accent-[#8c9a8c]" />
+                <span className="w-16 text-center font-bold text-[#8c9a8c] text-lg font-mono">{stayDuration} h</span>
             </div>
           </div>
           
           <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1">備註</label>
-              <textarea className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl h-24 text-sm focus:ring-2 focus:ring-teal-500 outline-none" placeholder="輸入筆記..." value={notes} onChange={(e) => setNotes(e.target.value)} />
+              <label className="block text-sm font-bold text-[#6b615b] mb-1">手帳筆記</label>
+              <textarea className="w-full p-3 bg-white border border-[#dcd7c9] rounded-xl h-24 text-sm focus:ring-2 focus:ring-[#a3b18a] outline-none text-[#4a4238]" placeholder="寫點什麼..." value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
         </div>
 
         <div className="mt-8 flex gap-3">
-          {onDelete && <button onClick={onDelete} className="p-3 text-red-500 bg-red-50 hover:bg-red-100 rounded-xl transition-colors"><Trash2 className="w-6 h-6" /></button>}
+          {onDelete && <button onClick={onDelete} className="p-3 text-[#e76f51] bg-[#fff5eb] hover:bg-[#ffeadd] rounded-xl transition-colors"><Trash2 className="w-6 h-6" /></button>}
           <button 
             onClick={() => onSave({ 
                 name, stayDuration, notes, 
@@ -729,8 +736,8 @@ function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDa
                 transportMode: initialData?.transportMode || 'driving'
             })}
             disabled={!name}
-            className="flex-1 p-3 bg-teal-600 text-white rounded-xl font-bold shadow-lg disabled:opacity-50 hover:bg-teal-700 transition-colors">
-            {initialData ? '儲存變更' : '加入行程'}
+            className="flex-1 p-3 bg-[#8c9a8c] text-white rounded-xl font-bold shadow-sm disabled:opacity-50 hover:bg-[#7b8c7c] transition-colors">
+            {initialData ? '儲存變更' : '加入手帳'}
           </button>
         </div>
       </div>
@@ -744,7 +751,6 @@ function TransportModal({ isOpen, onClose, onSave, initialData }) {
     const prevStopName = initialData?.prevStopName;
     const currentStopName = initialData?.name;
     
-    // 修改 4 (內層): 這裡保持原樣，顯示「上一個點 -> 下一個點」的路線規劃
     const getGoogleMapsUrl = () => {
         if (!prevStopName || !currentStopName) return null;
         return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(prevStopName)}&destination=${encodeURIComponent(currentStopName)}&travelmode=${mode}`;
@@ -754,17 +760,17 @@ function TransportModal({ isOpen, onClose, onSave, initialData }) {
     const mapsUrl = getGoogleMapsUrl();
 
     return (
-        <div className="fixed inset-0 bg-black/60 flex items-end md:items-center justify-center z-50 animate-in fade-in duration-200 backdrop-blur-sm">
-            <div className="bg-white w-full md:max-w-sm rounded-t-2xl md:rounded-2xl p-6 shadow-2xl">
-                <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-xl font-bold text-gray-800">交通方式設定</h3>
-                    <button onClick={onClose} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X className="w-5 h-5 text-gray-500" /></button>
+        <div className="fixed inset-0 bg-[#4a4238]/40 flex items-end md:items-center justify-center z-50 animate-in fade-in duration-200 backdrop-blur-sm">
+            <div className="bg-[#fdfbf7] w-full md:max-w-sm rounded-t-2xl md:rounded-2xl p-6 shadow-2xl border border-[#e6e2d3]">
+                <div className="flex justify-between items-center mb-6 border-b border-[#e6e2d3] pb-3">
+                    <h3 className="text-xl font-bold text-[#4a4238]">交通方式設定</h3>
+                    <button onClick={onClose} className="p-2 bg-[#f4f1ea] rounded-full hover:bg-[#ebe7df]"><X className="w-5 h-5 text-[#9c9288]" /></button>
                 </div>
                 <div className="mb-4">
                      <div className="grid grid-cols-3 gap-3 mb-4">
-                        <button onClick={() => setMode('driving')} className={`p-3 rounded-xl flex flex-col items-center gap-2 border-2 transition-all ${mode === 'driving' ? 'border-teal-500 bg-teal-50 text-teal-700' : 'border-gray-100 text-gray-400'}`}><Car className="w-6 h-6" /><span className="text-xs font-bold">開車</span></button>
-                        <button onClick={() => setMode('transit')} className={`p-3 rounded-xl flex flex-col items-center gap-2 border-2 transition-all ${mode === 'transit' ? 'border-teal-500 bg-teal-50 text-teal-700' : 'border-gray-100 text-gray-400'}`}><Train className="w-6 h-6" /><span className="text-xs font-bold">大眾運輸</span></button>
-                        <button onClick={() => setMode('walking')} className={`p-3 rounded-xl flex flex-col items-center gap-2 border-2 transition-all ${mode === 'walking' ? 'border-teal-500 bg-teal-50 text-teal-700' : 'border-gray-100 text-gray-400'}`}><Footprints className="w-6 h-6" /><span className="text-xs font-bold">步行</span></button>
+                        <button onClick={() => setMode('driving')} className={`p-3 rounded-xl flex flex-col items-center gap-2 border transition-all ${mode === 'driving' ? 'border-[#8c9a8c] bg-[#f0f4f0] text-[#6b7c6b]' : 'border-[#e6e2d3] text-[#b5a89e]'}`}><Car className="w-6 h-6" /><span className="text-xs font-bold">開車</span></button>
+                        <button onClick={() => setMode('transit')} className={`p-3 rounded-xl flex flex-col items-center gap-2 border transition-all ${mode === 'transit' ? 'border-[#8c9a8c] bg-[#f0f4f0] text-[#6b7c6b]' : 'border-[#e6e2d3] text-[#b5a89e]'}`}><Train className="w-6 h-6" /><span className="text-xs font-bold">大眾運輸</span></button>
+                        <button onClick={() => setMode('walking')} className={`p-3 rounded-xl flex flex-col items-center gap-2 border transition-all ${mode === 'walking' ? 'border-[#8c9a8c] bg-[#f0f4f0] text-[#6b7c6b]' : 'border-[#e6e2d3] text-[#b5a89e]'}`}><Footprints className="w-6 h-6" /><span className="text-xs font-bold">步行</span></button>
                     </div>
                     
                     {mapsUrl && (
@@ -772,26 +778,26 @@ function TransportModal({ isOpen, onClose, onSave, initialData }) {
                             href={mapsUrl} 
                             target="_blank" 
                             rel="noopener noreferrer" 
-                            className="bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-xl font-bold text-center flex items-center justify-center gap-2 shadow-lg transition-colors no-underline block"
+                            className="bg-[#6b7c6b] hover:bg-[#5a6b5a] text-white p-3 rounded-xl font-bold text-center flex items-center justify-center gap-2 shadow-sm transition-colors no-underline block"
                         >
                             <Navigation className="w-5 h-5" /> 1. 查看 Google 地圖 (路徑規劃)
                         </a>
                     )}
                 </div>
           
-                <div className="mb-6 p-4 rounded-xl bg-gray-50 border border-gray-100">
-                    <label className="block text-sm font-medium text-gray-600 mb-2 text-center">2. 輸入確認後的時間 (分鐘)</label>
+                <div className="mb-6 p-4 rounded-xl bg-white border border-[#dcd7c9]">
+                    <label className="block text-sm font-medium text-[#6b615b] mb-2 text-center">2. 輸入確認後的時間 (分鐘)</label>
                     <div className="flex items-center gap-4">
-                        <button onClick={() => setMinutes(m => Math.max(5, m - 5))} className="w-12 h-12 rounded-xl bg-white border border-gray-200 text-xl font-bold hover:bg-gray-50 active:scale-95 transition-all">-</button>
-                        <div className="flex-1 text-center bg-white h-12 flex items-center justify-center rounded-xl border border-gray-200">
-                            <input type="number" value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} className="w-full text-center text-2xl font-extrabold text-teal-600 outline-none" />
-                            <span className="text-sm text-gray-400 ml-1">分</span>
+                        <button onClick={() => setMinutes(m => Math.max(5, m - 5))} className="w-12 h-12 rounded-xl bg-[#fdfbf7] border border-[#dcd7c9] text-xl font-bold hover:bg-[#f4f1ea] active:scale-95 transition-all text-[#8c9a8c]">-</button>
+                        <div className="flex-1 text-center bg-[#fdfbf7] h-12 flex items-center justify-center rounded-xl border border-[#dcd7c9]">
+                            <input type="number" value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} className="w-full text-center text-2xl font-extrabold text-[#4a4238] outline-none bg-transparent font-mono" />
+                            <span className="text-sm text-[#9c9288] ml-1">分</span>
                         </div>
-                        <button onClick={() => setMinutes(m => m + 5)} className="w-12 h-12 rounded-xl bg-white border border-gray-200 text-xl font-bold hover:bg-gray-50 active:scale-95 transition-all">+</button>
+                        <button onClick={() => setMinutes(m => m + 5)} className="w-12 h-12 rounded-xl bg-[#fdfbf7] border border-[#dcd7c9] text-xl font-bold hover:bg-[#f4f1ea] active:scale-95 transition-all text-[#8c9a8c]">+</button>
                     </div>
                 </div>
             
-                <button onClick={() => onSave({ transportMode: mode, travelMinutes: minutes })} className="w-full p-3 bg-teal-600 text-white rounded-xl font-bold shadow-lg hover:bg-teal-700 transition-colors">確認修改</button>
+                <button onClick={() => onSave({ transportMode: mode, travelMinutes: minutes })} className="w-full p-3 bg-[#8c9a8c] text-white rounded-xl font-bold shadow-sm hover:bg-[#7b8c7c] transition-colors">確認修改</button>
             </div>
         </div>
     );
