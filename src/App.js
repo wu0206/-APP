@@ -9,18 +9,26 @@ import {
 } from 'lucide-react';
 
 const appId = 'travel-planner-v1'; 
-const APP_VERSION = 'v1.1'; 
+const APP_VERSION = 'v1.2'; 
 
-// --- Helper Functions ---
-const formatDate = (date) => date.toISOString().split('T')[0];
+// --- Helper Functions (修正日期時區問題) ---
+
+// 修改 1: 強制使用「當地時間」格式化日期，解決 toISOString 導致的時區誤差
+const formatDate = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
 const formatTime = (date) => date.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false });
 
 const formatTabDate = (dateStr) => {
-    const d = new Date(dateStr);
-    const month = d.getMonth() + 1;
-    const date = d.getDate();
+    // 這裡直接解析 YYYY-MM-DD 字串，避免 new Date() 的時區干擾
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, d); 
     const dayMap = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
-    return `${month}/${date} ${dayMap[d.getDay()]}`;
+    return `${m}/${d} ${dayMap[dateObj.getDay()]}`;
 };
 
 // --- Sub-Components (Cozy Style) ---
@@ -39,7 +47,6 @@ const TransportItem = ({ stop, onEdit }) => {
 
   return (
     <div className="ml-8 mb-4 relative group">
-      {/* 虛線時間軸 */}
       <div className="absolute left-[-19px] top-[-10px] bottom-[-10px] w-0 border-l-2 border-dashed border-[#dcd7c9] z-0"></div>
       
       <div className="flex items-center gap-2">
@@ -226,40 +233,57 @@ export default function TravelPlanner() {
     const startTimeStr = currentTrip.startTime || '08:00'; 
     const tripDuration = currentTrip.durationDays || 1;
     
-    let currentTimeMs = new Date(`${startDateStr}T${startTimeStr}:00`).getTime();
-    const daySchedules = {};
-
-    const getDayStart = (dateStr) => {
-      const day = new Date(dateStr);
-      day.setHours(0, 0, 0, 0);
-      return day;
+    // 修改 2: 統一使用新的 formatDate 來標準化日期，確保計算基準一致
+    // 建立一個 Helper 來將字串轉為當天 00:00 的 Date 物件 (Local Time)
+    const parseDateToLocalMidnight = (dateStr) => {
+        const [y, m, d] = dateStr.split('-').map(Number);
+        return new Date(y, m - 1, d);
     };
-    const tripStartDay = getDayStart(startDateStr);
+
+    const tripStartDay = parseDateToLocalMidnight(startDateStr);
+    let currentTimeMs = new Date(tripStartDay);
+    const [h, m] = startTimeStr.split(':').map(Number);
+    currentTimeMs.setHours(h, m, 0, 0);
+    currentTimeMs = currentTimeMs.getTime();
+
+    const daySchedules = {};
 
     for (let i = 0; i < tripStops.length; i++) {
       const stop = tripStops[i];
       
       if (stop.isFixedTime && stop.fixedDate && stop.fixedTime) {
-          currentTimeMs = new Date(`${stop.fixedDate}T${stop.fixedTime}:00`).getTime();
+          const [y, m, d] = stop.fixedDate.split('-').map(Number);
+          const [fh, fm] = stop.fixedTime.split(':').map(Number);
+          currentTimeMs = new Date(y, m - 1, d, fh, fm).getTime();
       } else if (i > 0) {
         const travelMinutes = stop.travelMinutes || 30;
         currentTimeMs += travelMinutes * 60000;
       }
 
       let arrivalTime = new Date(currentTimeMs);
-      const arrivalDay = getDayStart(formatDate(arrivalTime));
       
-      // 修改：更精確的日期計算 (使用 Round 防止浮點數誤差)
-      const dayDiff = Math.round((arrivalDay.getTime() - tripStartDay.getTime()) / (1000 * 60 * 60 * 24));
-      let currentDayNum = dayDiff + 1;
+      // 計算目前是第幾天 (核心修正)
+      // 直接比較日期字串，避免時區換算誤差
+      const arrivalDateStr = formatDate(arrivalTime);
+      const arrivalDateObj = parseDateToLocalMidnight(arrivalDateStr);
+      
+      // 計算相差天數 (毫秒差 / 一天毫秒數，取四雪五入)
+      const diffTime = arrivalDateObj.getTime() - tripStartDay.getTime();
+      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+      let currentDayNum = diffDays + 1;
 
+      // 跨日邏輯 (如果太晚就歸到隔天)
       if (!stop.isFixedTime && currentDayNum <= tripDuration) {
         if (arrivalTime.getHours() >= 22) {
-          currentDayNum++;
-          const nextDayDate = new Date(tripStartDay);
-          nextDayDate.setDate(tripStartDay.getDate() + currentDayNum - 1);
-          arrivalTime = new Date(`${formatDate(nextDayDate)}T${startTimeStr}:00`);
-          currentTimeMs = arrivalTime.getTime();
+            currentDayNum++;
+            const nextDayDate = new Date(tripStartDay);
+            nextDayDate.setDate(tripStartDay.getDate() + currentDayNum - 1);
+            // 隔天早上 08:00
+            const [sh, sm] = startTimeStr.split(':').map(Number);
+            const nextDayStart = new Date(nextDayDate);
+            nextDayStart.setHours(sh, sm, 0, 0);
+            currentTimeMs = nextDayStart.getTime();
+            arrivalTime = new Date(currentTimeMs);
         }
       }
 
@@ -268,7 +292,9 @@ export default function TravelPlanner() {
       const stayMinutes = (stop.stayDuration || 1) * 60;
       let departureTime = new Date(arrivalTime.getTime() + stayMinutes * 60000);
       
-      const stopDateKey = formatDate(arrivalTime);
+      // 確保顯示日期格式正確
+      const displayDateStr = formatTabDate(formatDate(arrivalTime));
+
       const scheduledStop = {
           ...stop,
           calculatedArrival: formatTime(arrivalTime),   
@@ -276,14 +302,14 @@ export default function TravelPlanner() {
           fullArrival: arrivalTime, 
           fullDeparture: departureTime, 
           day: currentDayNum,
-          displayDate: new Date(stopDateKey).toLocaleDateString('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit' })
+          displayDate: displayDateStr
       };
 
       if (!daySchedules[currentDayNum]) {
           daySchedules[currentDayNum] = {
-              dateKey: stopDateKey,
+              dateKey: formatDate(arrivalTime),
               stops: [],
-              displayDate: scheduledStop.displayDate
+              displayDate: displayDateStr
           };
       }
       daySchedules[currentDayNum].stops.push(scheduledStop);
@@ -564,13 +590,15 @@ export default function TravelPlanner() {
         <div className="flex space-x-1 min-w-max">
             <button onClick={() => setSelectedDay('All')} className={`py-2 px-4 text-sm rounded-t-lg transition-all border-t border-l border-r ${selectedDay === 'All' ? 'bg-white border-[#e6e2d3] text-[#4a4238] font-bold mb-[-1px] pb-3' : 'bg-[#f4f1ea] border-transparent text-[#9c9288] hover:bg-[#ebe7df]'}`}>總覽</button>
             {Array.from({ length: currentTrip.durationDays || 1 }).map((_, i) => {
-                const tabDate = new Date(currentTrip.date);
-                tabDate.setDate(tabDate.getDate() + i);
-                const dateStr = formatTabDate(formatDate(tabDate));
+                const tabDate = new Date(currentTrip.date + 'T00:00:00'); // 加 T00:00:00 確保轉換穩定
+                // 但為了最保險，我們直接用 Y-M-D 字串運算
+                const [y, m, d] = currentTrip.date.split('-').map(Number);
+                const loopDate = new Date(y, m - 1, d + i);
+                const dateStr = formatDate(loopDate);
 
                 return (
                     <button key={i+1} onClick={() => setSelectedDay(i+1)} className={`py-2 px-4 text-sm rounded-t-lg transition-all border-t border-l border-r ${selectedDay === i+1 ? 'bg-white border-[#e6e2d3] text-[#4a4238] font-bold mb-[-1px] pb-3' : 'bg-[#f4f1ea] border-transparent text-[#9c9288] hover:bg-[#ebe7df]'}`}>
-                        {dateStr}
+                        {formatTabDate(dateStr)}
                     </button>
                 );
             })}
@@ -611,7 +639,7 @@ export default function TravelPlanner() {
         </div>
       </main>
 
-      {/* Edit Stop Modal (Cozy Style) - 修改 3: 停留時間改為自由輸入數字框 */}
+      {/* Edit Stop Modal (Cozy Style) */}
       {isStopModalOpen && (
         <StopModal 
           isOpen={isStopModalOpen} 
@@ -649,16 +677,17 @@ function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDa
   useEffect(() => {
     if (!initialData && typeof selectedDay === 'number') {
         setIsFixedTime(false); 
-        const d = new Date(tripStartDate);
-        d.setDate(d.getDate() + selectedDay - 1);
-        setFixedDate(formatDate(d));
+        // 確保新增時，如果是在第 N 天，日期就預設帶入第 N 天
+        const [y, m, d] = tripStartDate.split('-').map(Number);
+        const targetDate = new Date(y, m - 1, d + selectedDay - 1);
+        setFixedDate(formatDate(targetDate));
     }
   }, [initialData, selectedDay, tripStartDate]);
 
   const dayOptions = Array.from({ length: tripDuration || 1 }).map((_, i) => {
-      const d = new Date(tripStartDate);
-      d.setDate(d.getDate() + i);
-      const dateStr = formatDate(d);
+      const [y, m, d] = tripStartDate.split('-').map(Number);
+      const loopDate = new Date(y, m - 1, d + i);
+      const dateStr = formatDate(loopDate);
       return {
           dayNum: i + 1,
           dateStr: dateStr,
@@ -724,7 +753,6 @@ function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDa
           <div>
             <label className="block text-sm font-bold text-[#6b615b] mb-1">預計停留 (小時)</label>
             <div className="flex items-center gap-4">
-                {/* 修改：由 range slider 改為 input number */}
                 <input 
                     type="number" 
                     min="0" 
@@ -762,7 +790,6 @@ function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDa
   );
 }
 
-// 修改 2: TransportModal 現在支援自由輸入數字
 function TransportModal({ isOpen, onClose, onSave, initialData }) {
     const [mode, setMode] = useState(initialData?.transportMode || 'driving');
     const [minutes, setMinutes] = useState(initialData?.travelMinutes || 30);
@@ -806,7 +833,6 @@ function TransportModal({ isOpen, onClose, onSave, initialData }) {
                 <div className="mb-6 p-4 rounded-xl bg-white border border-[#dcd7c9]">
                     <label className="block text-sm font-medium text-[#6b615b] mb-2 text-center">2. 輸入確認後的時間 (分鐘)</label>
                     <div className="flex items-center gap-4">
-                        {/* 移除 +/- 按鈕，改為單純輸入框 */}
                         <div className="flex-1 text-center bg-[#fdfbf7] h-14 flex items-center justify-center rounded-xl border border-[#dcd7c9]">
                             <input 
                                 type="number" 
