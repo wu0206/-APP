@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 
 const appId = 'travel-planner-v1'; 
+const APP_VERSION = 'v1.0'; // 設定版本號
 
 // --- Helper Functions ---
 const formatDate = (date) => date.toISOString().split('T')[0];
@@ -438,9 +439,8 @@ export default function TravelPlanner() {
   // --- Render (Home View) ---
   if (!currentTrip) {
     return (
-      // 風格修改：米白色紙張背景
       <div className="min-h-screen bg-[#fdfbf7] pb-20 font-sans text-[#4a4238]">
-        {/* Header: 暖灰色調 */}
+        {/* Header */}
         <header className="bg-[#e8e4d9] text-[#4a4238] p-4 shadow-sm sticky top-0 z-10 pt-safe flex justify-between items-center border-b border-[#dcd7c9]">
           <h1 className="text-xl font-bold flex items-center gap-2 tracking-wide"><Coffee className="w-6 h-6 text-[#8c9a8c]" /> 旅程手帳</h1>
           
@@ -476,6 +476,11 @@ export default function TravelPlanner() {
               <Plus className="w-8 h-8 mb-2" />新增旅程
           </button>
         </main>
+        
+        {/* 修改 2: 首頁底部版本號 */}
+        <div className="text-center text-[10px] text-[#b5a89e] mt-8 font-mono opacity-60">
+            {APP_VERSION}
+        </div>
         
         {isTripModalOpen && (
           <div className="fixed inset-0 bg-[#4a4238]/40 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
@@ -553,8 +558,8 @@ export default function TravelPlanner() {
         </button>
       </header>
       
-      {/* Day Tabs (Bookmarker Style) */}
-      <div className="bg-[#fdfbf7] px-4 pt-3 pb-0 sticky top-[64px] z-10 overflow-x-auto scrollbar-hide border-b border-[#e6e2d3]">
+      {/* Day Tabs (Bookmarker Style) - 修改 1: 加入 touch-pan-x 鎖定水平捲動 */}
+      <div className="bg-[#fdfbf7] px-4 pt-3 pb-0 sticky top-[64px] z-10 overflow-x-auto scrollbar-hide border-b border-[#e6e2d3] touch-pan-x">
         <div className="flex space-x-1 min-w-max">
             <button onClick={() => setSelectedDay('All')} className={`py-2 px-4 text-sm rounded-t-lg transition-all border-t border-l border-r ${selectedDay === 'All' ? 'bg-white border-[#e6e2d3] text-[#4a4238] font-bold mb-[-1px] pb-3' : 'bg-[#f4f1ea] border-transparent text-[#9c9288] hover:bg-[#ebe7df]'}`}>總覽</button>
             {Array.from({ length: currentTrip.durationDays || 1 }).map((_, i) => {
@@ -600,6 +605,11 @@ export default function TravelPlanner() {
                 <p>點擊右上角 + 開始寫下你的旅程</p>
             </div>
         )}
+        
+        {/* 修改 2: 詳情頁底部版本號 */}
+        <div className="text-center text-[10px] text-[#b5a89e] mt-8 mb-4 font-mono opacity-60">
+            {APP_VERSION}
+        </div>
       </main>
 
       {/* Edit Stop Modal (Cozy Style) */}
