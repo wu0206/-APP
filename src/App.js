@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 
 const appId = 'travel-planner-v1'; 
-const APP_VERSION = 'v1.3'; 
+const APP_VERSION = 'v1.4'; 
 
 // --- Helper Functions ---
 const formatDate = (date) => {
@@ -306,6 +306,25 @@ export default function TravelPlanner() {
   const handleSaveStop = async (stopData) => {
     const stopsRef = collection(db, 'artifacts', appId, 'users', user.uid, `trips/${currentTrip.id}/stops`);
     
+    // ★★★ 自動修正邏輯開始 ★★★
+    // 如果使用者在某個「天數分頁」下按新增 (例如 Day 2)，且沒有手動指定時間
+    if (typeof selectedDay === 'number' && !stopData.isFixedTime) {
+        // 檢查那一天是否已經有行程了
+        const dayHasStops = scheduledDays[selectedDay] && scheduledDays[selectedDay].stops.length > 0;
+        
+        // 如果那一天是空的 (這是當天的第一格行程)
+        if (!dayHasStops) {
+            // 幫使用者自動改成「固定時間 08:00」，確保它會釘在當天
+            const [y, m, d] = currentTrip.date.split('-').map(Number);
+            const targetDate = new Date(y, m - 1, d + selectedDay - 1);
+            
+            stopData.isFixedTime = true;
+            stopData.fixedDate = formatDate(targetDate);
+            stopData.fixedTime = '08:00'; 
+        }
+    }
+    // ★★★ 自動修正邏輯結束 ★★★
+
     if (stopData.isFixedTime && stopData.fixedDate && stopData.fixedTime) {
         let prevStop = null;
         if (editingStop) {
@@ -335,8 +354,6 @@ export default function TravelPlanner() {
                      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, `trips/${currentTrip.id}/stops`, prevStop.id), {
                          stayDuration: Number(newDurationHrs.toFixed(2))
                      }, { merge: true });
-                } else {
-                    alert('注意：您設定的時間過早，導致上一個行程沒有停留時間。');
                 }
             }
         }
@@ -445,9 +462,11 @@ export default function TravelPlanner() {
 
   useEffect(() => { setSelectedDay('All'); }, [currentTrip]);
 
+  // --- Render (Home View) ---
   if (!currentTrip) {
     return (
       <div className="min-h-screen bg-[#fdfbf7] pb-20 font-sans text-[#4a4238]">
+        {/* Header */}
         <header className="bg-[#e8e4d9] text-[#4a4238] p-4 shadow-sm sticky top-0 z-10 pt-safe flex justify-between items-center border-b border-[#dcd7c9]">
           <h1 className="text-xl font-bold flex items-center gap-2 tracking-wide"><Coffee className="w-6 h-6 text-[#8c9a8c]" /> 旅程手帳</h1>
           
@@ -549,6 +568,7 @@ export default function TravelPlanner() {
     );
   }
 
+  // --- Render (Details View) ---
   return (
     <div className="min-h-screen bg-[#fdfbf7] flex flex-col font-sans text-[#4a4238]">
       <header className="bg-white px-4 py-3 shadow-sm sticky top-0 z-20 flex items-center gap-3 pt-safe border-b border-[#e6e2d3]">
@@ -563,6 +583,7 @@ export default function TravelPlanner() {
         </button>
       </header>
       
+      {/* Day Tabs */}
       <div className="bg-[#fdfbf7] px-4 pt-3 pb-0 sticky top-[64px] z-10 overflow-x-auto scrollbar-hide border-b border-[#e6e2d3] touch-pan-x">
         <div className="flex space-x-1 min-w-max">
             <button onClick={() => setSelectedDay('All')} className={`py-2 px-4 text-sm rounded-t-lg transition-all border-t border-l border-r ${selectedDay === 'All' ? 'bg-white border-[#e6e2d3] text-[#4a4238] font-bold mb-[-1px] pb-3' : 'bg-[#f4f1ea] border-transparent text-[#9c9288] hover:bg-[#ebe7df]'}`}>總覽</button>
@@ -649,19 +670,13 @@ function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDa
   const [fixedTime, setFixedTime] = useState(initialData?.fixedTime || '08:00');
 
   useEffect(() => {
+    // 修正：無論哪一天打開，都預設關閉指定時間 (UI 顯示關閉)
+    // 但會自動設定好日期，以防使用者想開啟
     if (!initialData && typeof selectedDay === 'number') {
         const [y, m, d] = tripStartDate.split('-').map(Number);
         const targetDate = new Date(y, m - 1, d + selectedDay - 1);
         setFixedDate(formatDate(targetDate));
-        
-        // 修正邏輯：如果是在 Day 2, Day 3... 新增，預設開啟固定時間，確保它出現在當天
-        // 如果是 Day 1 或 All，則預設關閉固定時間 (接續制)
-        if (selectedDay > 1) {
-            setIsFixedTime(true);
-            setFixedTime('09:00'); // 預設 9 點開始
-        } else {
-            setIsFixedTime(false);
-        }
+        setIsFixedTime(false); 
     }
   }, [initialData, selectedDay, tripStartDate]);
 
