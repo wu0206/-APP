@@ -9,11 +9,9 @@ import {
 } from 'lucide-react';
 
 const appId = 'travel-planner-v1'; 
-const APP_VERSION = 'v1.2'; 
+const APP_VERSION = 'v1.3'; 
 
-// --- Helper Functions (修正日期時區問題) ---
-
-// 修改 1: 強制使用「當地時間」格式化日期，解決 toISOString 導致的時區誤差
+// --- Helper Functions ---
 const formatDate = (date) => {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -24,7 +22,6 @@ const formatDate = (date) => {
 const formatTime = (date) => date.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false });
 
 const formatTabDate = (dateStr) => {
-    // 這裡直接解析 YYYY-MM-DD 字串，避免 new Date() 的時區干擾
     const [y, m, d] = dateStr.split('-').map(Number);
     const dateObj = new Date(y, m - 1, d); 
     const dayMap = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
@@ -157,22 +154,18 @@ export default function TravelPlanner() {
   const [stops, setStops] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Modal States
   const [isTripModalOpen, setIsTripModalOpen] = useState(false);
   const [isStopModalOpen, setIsStopModalOpen] = useState(false);
   const [isTransportModalOpen, setIsTransportModalOpen] = useState(false);
 
-  // Editing States
   const [editingStop, setEditingStop] = useState(null);
   const [editingTransport, setEditingTransport] = useState(null);
 
-  // New Data Placeholders
   const [newTripTitle, setNewTripTitle] = useState('');
   const [newTripDate, setNewTripDate] = useState('');
   const [newTripDuration, setNewTripDuration] = useState(1);
   const [selectedDay, setSelectedDay] = useState('All');
 
-  // --- Auth & Data Loading ---
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
         setUser(currentUser);
@@ -200,7 +193,6 @@ export default function TravelPlanner() {
     }
   }
 
-  // Load Trips
   useEffect(() => {
     if (!user) return;
     try {
@@ -215,7 +207,6 @@ export default function TravelPlanner() {
     }
   }, [user]);
 
-  // Load Stops
   useEffect(() => {
     if (!user || !currentTrip) return;
     const q = query(collection(db, 'artifacts', appId, 'users', user.uid, `trips/${currentTrip.id}/stops`), orderBy('order', 'asc'));
@@ -226,15 +217,12 @@ export default function TravelPlanner() {
     return () => unsubscribe();
   }, [user, currentTrip]);
 
-  // --- Logic Functions ---
   const calculateSchedule = (tripStops) => {
     if (!currentTrip || !tripStops.length || !currentTrip.date) return {};
     const startDateStr = currentTrip.date;
     const startTimeStr = currentTrip.startTime || '08:00'; 
     const tripDuration = currentTrip.durationDays || 1;
     
-    // 修改 2: 統一使用新的 formatDate 來標準化日期，確保計算基準一致
-    // 建立一個 Helper 來將字串轉為當天 00:00 的 Date 物件 (Local Time)
     const parseDateToLocalMidnight = (dateStr) => {
         const [y, m, d] = dateStr.split('-').map(Number);
         return new Date(y, m - 1, d);
@@ -262,23 +250,18 @@ export default function TravelPlanner() {
 
       let arrivalTime = new Date(currentTimeMs);
       
-      // 計算目前是第幾天 (核心修正)
-      // 直接比較日期字串，避免時區換算誤差
       const arrivalDateStr = formatDate(arrivalTime);
       const arrivalDateObj = parseDateToLocalMidnight(arrivalDateStr);
       
-      // 計算相差天數 (毫秒差 / 一天毫秒數，取四雪五入)
       const diffTime = arrivalDateObj.getTime() - tripStartDay.getTime();
       const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
       let currentDayNum = diffDays + 1;
 
-      // 跨日邏輯 (如果太晚就歸到隔天)
       if (!stop.isFixedTime && currentDayNum <= tripDuration) {
         if (arrivalTime.getHours() >= 22) {
             currentDayNum++;
             const nextDayDate = new Date(tripStartDay);
             nextDayDate.setDate(tripStartDay.getDate() + currentDayNum - 1);
-            // 隔天早上 08:00
             const [sh, sm] = startTimeStr.split(':').map(Number);
             const nextDayStart = new Date(nextDayDate);
             nextDayStart.setHours(sh, sm, 0, 0);
@@ -292,7 +275,6 @@ export default function TravelPlanner() {
       const stayMinutes = (stop.stayDuration || 1) * 60;
       let departureTime = new Date(arrivalTime.getTime() + stayMinutes * 60000);
       
-      // 確保顯示日期格式正確
       const displayDateStr = formatTabDate(formatDate(arrivalTime));
 
       const scheduledStop = {
@@ -321,7 +303,6 @@ export default function TravelPlanner() {
 
   const scheduledDays = calculateSchedule(stops);
 
-  // --- Actions ---
   const handleSaveStop = async (stopData) => {
     const stopsRef = collection(db, 'artifacts', appId, 'users', user.uid, `trips/${currentTrip.id}/stops`);
     
@@ -464,11 +445,9 @@ export default function TravelPlanner() {
 
   useEffect(() => { setSelectedDay('All'); }, [currentTrip]);
 
-  // --- Render (Home View) ---
   if (!currentTrip) {
     return (
       <div className="min-h-screen bg-[#fdfbf7] pb-20 font-sans text-[#4a4238]">
-        {/* Header */}
         <header className="bg-[#e8e4d9] text-[#4a4238] p-4 shadow-sm sticky top-0 z-10 pt-safe flex justify-between items-center border-b border-[#dcd7c9]">
           <h1 className="text-xl font-bold flex items-center gap-2 tracking-wide"><Coffee className="w-6 h-6 text-[#8c9a8c]" /> 旅程手帳</h1>
           
@@ -570,7 +549,6 @@ export default function TravelPlanner() {
     );
   }
 
-  // --- Render (Details View) ---
   return (
     <div className="min-h-screen bg-[#fdfbf7] flex flex-col font-sans text-[#4a4238]">
       <header className="bg-white px-4 py-3 shadow-sm sticky top-0 z-20 flex items-center gap-3 pt-safe border-b border-[#e6e2d3]">
@@ -585,13 +563,11 @@ export default function TravelPlanner() {
         </button>
       </header>
       
-      {/* Day Tabs */}
       <div className="bg-[#fdfbf7] px-4 pt-3 pb-0 sticky top-[64px] z-10 overflow-x-auto scrollbar-hide border-b border-[#e6e2d3] touch-pan-x">
         <div className="flex space-x-1 min-w-max">
             <button onClick={() => setSelectedDay('All')} className={`py-2 px-4 text-sm rounded-t-lg transition-all border-t border-l border-r ${selectedDay === 'All' ? 'bg-white border-[#e6e2d3] text-[#4a4238] font-bold mb-[-1px] pb-3' : 'bg-[#f4f1ea] border-transparent text-[#9c9288] hover:bg-[#ebe7df]'}`}>總覽</button>
             {Array.from({ length: currentTrip.durationDays || 1 }).map((_, i) => {
-                const tabDate = new Date(currentTrip.date + 'T00:00:00'); // 加 T00:00:00 確保轉換穩定
-                // 但為了最保險，我們直接用 Y-M-D 字串運算
+                const tabDate = new Date(currentTrip.date + 'T00:00:00'); 
                 const [y, m, d] = currentTrip.date.split('-').map(Number);
                 const loopDate = new Date(y, m - 1, d + i);
                 const dateStr = formatDate(loopDate);
@@ -639,7 +615,6 @@ export default function TravelPlanner() {
         </div>
       </main>
 
-      {/* Edit Stop Modal (Cozy Style) */}
       {isStopModalOpen && (
         <StopModal 
           isOpen={isStopModalOpen} 
@@ -665,7 +640,6 @@ export default function TravelPlanner() {
   );
 }
 
-// --- Modals (Cozy Theme) ---
 function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDate, tripDuration, selectedDay }) {
   const [name, setName] = useState(initialData?.name || '');
   const [stayDuration, setStayDuration] = useState(initialData?.stayDuration || 1);
@@ -676,11 +650,18 @@ function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDa
 
   useEffect(() => {
     if (!initialData && typeof selectedDay === 'number') {
-        setIsFixedTime(false); 
-        // 確保新增時，如果是在第 N 天，日期就預設帶入第 N 天
         const [y, m, d] = tripStartDate.split('-').map(Number);
         const targetDate = new Date(y, m - 1, d + selectedDay - 1);
         setFixedDate(formatDate(targetDate));
+        
+        // 修正邏輯：如果是在 Day 2, Day 3... 新增，預設開啟固定時間，確保它出現在當天
+        // 如果是 Day 1 或 All，則預設關閉固定時間 (接續制)
+        if (selectedDay > 1) {
+            setIsFixedTime(true);
+            setFixedTime('09:00'); // 預設 9 點開始
+        } else {
+            setIsFixedTime(false);
+        }
     }
   }, [initialData, selectedDay, tripStartDate]);
 
