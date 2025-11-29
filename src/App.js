@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 
 const appId = 'travel-planner-v1'; 
-const APP_VERSION = 'v1.0'; // 設定版本號
+const APP_VERSION = 'v1.1'; 
 
 // --- Helper Functions ---
 const formatDate = (date) => date.toISOString().split('T')[0];
@@ -39,7 +39,7 @@ const TransportItem = ({ stop, onEdit }) => {
 
   return (
     <div className="ml-8 mb-4 relative group">
-      {/* 虛線時間軸：模擬縫線效果 */}
+      {/* 虛線時間軸 */}
       <div className="absolute left-[-19px] top-[-10px] bottom-[-10px] w-0 border-l-2 border-dashed border-[#dcd7c9] z-0"></div>
       
       <div className="flex items-center gap-2">
@@ -81,7 +81,6 @@ const LocationItem = ({ stop, onEdit }) => {
   return (
     <div className="flex gap-3 relative z-10">
       <div className="flex flex-col items-center gap-1 w-10 pt-1 shrink-0">
-        {/* 時間點：使用大地色系圓點 */}
         <div className={`w-3 h-3 rounded-full ring-4 ring-[#fdfbf7] shadow-sm ${stop.isFixedTime ? 'bg-[#d4a373]' : 'bg-[#a3b18a]'}`}></div>
         <span className="text-[10px] font-bold text-[#8d837a] mt-1 text-center leading-tight font-mono">
             {stop.calculatedArrival}
@@ -249,7 +248,10 @@ export default function TravelPlanner() {
 
       let arrivalTime = new Date(currentTimeMs);
       const arrivalDay = getDayStart(formatDate(arrivalTime));
-      let currentDayNum = Math.floor((arrivalDay.getTime() - tripStartDay.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+      
+      // 修改：更精確的日期計算 (使用 Round 防止浮點數誤差)
+      const dayDiff = Math.round((arrivalDay.getTime() - tripStartDay.getTime()) / (1000 * 60 * 60 * 24));
+      let currentDayNum = dayDiff + 1;
 
       if (!stop.isFixedTime && currentDayNum <= tripDuration) {
         if (arrivalTime.getHours() >= 22) {
@@ -477,7 +479,6 @@ export default function TravelPlanner() {
           </button>
         </main>
         
-        {/* 修改 2: 首頁底部版本號 */}
         <div className="text-center text-[10px] text-[#b5a89e] mt-8 font-mono opacity-60">
             {APP_VERSION}
         </div>
@@ -558,7 +559,7 @@ export default function TravelPlanner() {
         </button>
       </header>
       
-      {/* Day Tabs (Bookmarker Style) - 修改 1: 加入 touch-pan-x 鎖定水平捲動 */}
+      {/* Day Tabs */}
       <div className="bg-[#fdfbf7] px-4 pt-3 pb-0 sticky top-[64px] z-10 overflow-x-auto scrollbar-hide border-b border-[#e6e2d3] touch-pan-x">
         <div className="flex space-x-1 min-w-max">
             <button onClick={() => setSelectedDay('All')} className={`py-2 px-4 text-sm rounded-t-lg transition-all border-t border-l border-r ${selectedDay === 'All' ? 'bg-white border-[#e6e2d3] text-[#4a4238] font-bold mb-[-1px] pb-3' : 'bg-[#f4f1ea] border-transparent text-[#9c9288] hover:bg-[#ebe7df]'}`}>總覽</button>
@@ -585,7 +586,6 @@ export default function TravelPlanner() {
                     </h2>
                 </div>
                 <div className="flex flex-col relative pl-2">
-                    {/* 背景虛線移到 Item 內部處理，這裡留白 */}
                     {scheduledDays[dayNum].stops.map((stop, idx) => (
                         <div key={stop.id} className="relative z-10 mb-2">
                             {idx > 0 && stops.findIndex(s => s.id === stop.id) > 0 && (
@@ -606,13 +606,12 @@ export default function TravelPlanner() {
             </div>
         )}
         
-        {/* 修改 2: 詳情頁底部版本號 */}
         <div className="text-center text-[10px] text-[#b5a89e] mt-8 mb-4 font-mono opacity-60">
             {APP_VERSION}
         </div>
       </main>
 
-      {/* Edit Stop Modal (Cozy Style) */}
+      {/* Edit Stop Modal (Cozy Style) - 修改 3: 停留時間改為自由輸入數字框 */}
       {isStopModalOpen && (
         <StopModal 
           isOpen={isStopModalOpen} 
@@ -725,8 +724,16 @@ function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDa
           <div>
             <label className="block text-sm font-bold text-[#6b615b] mb-1">預計停留 (小時)</label>
             <div className="flex items-center gap-4">
-                <input type="range" min="0.5" max="8" step="0.5" value={stayDuration} onChange={(e) => setStayDuration(Number(e.target.value))} className="flex-1 h-2 bg-[#e6e2d3] rounded-lg appearance-none cursor-pointer accent-[#8c9a8c]" />
-                <span className="w-16 text-center font-bold text-[#8c9a8c] text-lg font-mono">{stayDuration} h</span>
+                {/* 修改：由 range slider 改為 input number */}
+                <input 
+                    type="number" 
+                    min="0" 
+                    step="0.5" 
+                    value={stayDuration} 
+                    onChange={(e) => setStayDuration(Math.max(0, Number(e.target.value)))} 
+                    className="flex-1 p-3 bg-white border border-[#dcd7c9] rounded-xl outline-none text-[#4a4238] font-mono text-center focus:ring-2 focus:ring-[#a3b18a]" 
+                />
+                <span className="w-8 text-[#8c9a8c] font-bold">h</span>
             </div>
           </div>
           
@@ -755,6 +762,7 @@ function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDa
   );
 }
 
+// 修改 2: TransportModal 現在支援自由輸入數字
 function TransportModal({ isOpen, onClose, onSave, initialData }) {
     const [mode, setMode] = useState(initialData?.transportMode || 'driving');
     const [minutes, setMinutes] = useState(initialData?.travelMinutes || 30);
@@ -798,12 +806,17 @@ function TransportModal({ isOpen, onClose, onSave, initialData }) {
                 <div className="mb-6 p-4 rounded-xl bg-white border border-[#dcd7c9]">
                     <label className="block text-sm font-medium text-[#6b615b] mb-2 text-center">2. 輸入確認後的時間 (分鐘)</label>
                     <div className="flex items-center gap-4">
-                        <button onClick={() => setMinutes(m => Math.max(5, m - 5))} className="w-12 h-12 rounded-xl bg-[#fdfbf7] border border-[#dcd7c9] text-xl font-bold hover:bg-[#f4f1ea] active:scale-95 transition-all text-[#8c9a8c]">-</button>
-                        <div className="flex-1 text-center bg-[#fdfbf7] h-12 flex items-center justify-center rounded-xl border border-[#dcd7c9]">
-                            <input type="number" value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} className="w-full text-center text-2xl font-extrabold text-[#4a4238] outline-none bg-transparent font-mono" />
-                            <span className="text-sm text-[#9c9288] ml-1">分</span>
+                        {/* 移除 +/- 按鈕，改為單純輸入框 */}
+                        <div className="flex-1 text-center bg-[#fdfbf7] h-14 flex items-center justify-center rounded-xl border border-[#dcd7c9]">
+                            <input 
+                                type="number" 
+                                min="0" 
+                                value={minutes} 
+                                onChange={(e) => setMinutes(Math.max(0, Number(e.target.value)))} 
+                                className="w-full text-center text-3xl font-extrabold text-[#4a4238] outline-none bg-transparent font-mono" 
+                            />
+                            <span className="text-sm text-[#9c9288] ml-1 pr-4">分</span>
                         </div>
-                        <button onClick={() => setMinutes(m => m + 5)} className="w-12 h-12 rounded-xl bg-[#fdfbf7] border border-[#dcd7c9] text-xl font-bold hover:bg-[#f4f1ea] active:scale-95 transition-all text-[#8c9a8c]">+</button>
                     </div>
                 </div>
             
