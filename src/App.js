@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 
 const appId = 'travel-planner-v1'; 
-const APP_VERSION = 'v1.6'; 
+const APP_VERSION = 'v1.7'; 
 
 // --- Helper Functions ---
 const formatDate = (date) => {
@@ -29,7 +29,7 @@ const formatTabDate = (dateStr) => {
     return `${m}/${d} ${dayMap[dateObj.getDay()]}`;
 };
 
-// 取得即時匯率 (簡單實作)
+// 取得即時匯率
 const fetchExchangeRate = async () => {
     try {
         const response = await fetch('https://api.exchangerate-api.com/v4/latest/JPY');
@@ -46,7 +46,7 @@ const fetchExchangeRate = async () => {
 const TransportItem = ({ stop, onEdit }) => {
   const getCurrentLocNavUrl = () => {
     if (!stop) return '#';
-    return `https://www.google.com/maps/dir/?api=1&destination=$?q=${encodeURIComponent(stop.name)}&travelmode=${stop.transportMode || 'driving'}`;
+    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(stop.name)}&travelmode=${stop.transportMode || 'driving'}`;
   };
 
   const handleEdit = (e) => {
@@ -159,23 +159,38 @@ const LocationItem = ({ stop, onEdit }) => {
   );
 };
 
-// --- Expense Component ---
-const ExpenseItem = ({ expense, onDelete }) => (
-    <div className="bg-white p-4 rounded-xl border border-[#e6e2d3] shadow-sm mb-3 flex justify-between items-center relative overflow-hidden">
+// --- Expense Component (Modified for Editing) ---
+const ExpenseItem = ({ expense, onDelete, onEdit }) => (
+    <div className="bg-white p-4 rounded-xl border border-[#e6e2d3] shadow-sm mb-3 flex justify-between items-center relative overflow-hidden group">
         <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#8c9a8c]"></div>
-        <div className="pl-3">
+        <div className="pl-3 flex-1">
             <div className="flex items-center gap-2 mb-1">
-                {/* 修改重點：類別字體放大至 text-base，並加粗 */}
-                <span className="text-base bg-[#f4f1ea] text-[#6b615b] px-3 py-1 rounded-lg font-bold shadow-sm border border-[#e6e2d3]">
-                    {expense.category}
-                </span>
-                <span className="text-xs text-[#9c9288] ml-1">{expense.date}</span>
+                <span className="text-xs bg-[#f4f1ea] text-[#6b615b] px-2 py-0.5 rounded-full font-bold">{expense.category}</span>
+                <span className="text-xs text-[#9c9288]">{expense.date}</span>
             </div>
-            {expense.notes && <p className="text-xs text-[#b5a89e] mb-1 mt-2 pl-1">{expense.notes}</p>}
+            {expense.notes && <p className="text-xs text-[#b5a89e] mb-1 pl-1">{expense.notes}</p>}
         </div>
-        <div className="text-right">
+        <div className="text-right flex flex-col items-end">
             <div className="text-lg font-bold text-[#4a4238] font-mono">NT$ {expense.amount.toLocaleString()}</div>
-            <button onClick={() => onDelete(expense.id)} className="text-[10px] text-red-300 hover:text-red-500 mt-1">刪除</button>
+            <div className="flex gap-3 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button 
+                    onClick={() => onEdit(expense)} 
+                    className="text-xs text-[#8c9a8c] hover:text-[#6b7c6b] flex items-center gap-1"
+                >
+                    <Edit2 className="w-3 h-3" /> 編輯
+                </button>
+                <button 
+                    onClick={() => onDelete(expense.id)} 
+                    className="text-xs text-red-300 hover:text-red-500"
+                >
+                    刪除
+                </button>
+            </div>
+            {/* Mobile support: Always show delete/edit on touch might be better, strictly following mouse hover for now */}
+            <div className="flex md:hidden gap-3 mt-1">
+                <button onClick={() => onEdit(expense)} className="text-[10px] text-[#8c9a8c]">編輯</button>
+                <button onClick={() => onDelete(expense.id)} className="text-[10px] text-red-300">刪除</button>
+            </div>
         </div>
     </div>
 );
@@ -198,6 +213,7 @@ export default function TravelPlanner() {
   // Editing States
   const [editingStop, setEditingStop] = useState(null);
   const [editingTransport, setEditingTransport] = useState(null);
+  const [editingExpense, setEditingExpense] = useState(null); // 新增支出編輯狀態
 
   // View States
   const [selectedDay, setSelectedDay] = useState('All');
@@ -262,15 +278,14 @@ export default function TravelPlanner() {
       setStops(stopsData);
     });
 
-    // Load Expenses & SYNC TOTAL TO PARENT TRIP
+    // Load Expenses & SYNC TOTAL
     const qExpenses = query(collection(db, 'artifacts', appId, 'users', user.uid, `trips/${currentTrip.id}/expenses`), orderBy('createdAt', 'desc'));
     const unsubExpenses = onSnapshot(qExpenses, (snapshot) => {
         const expensesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setExpenses(expensesData);
 
-        // --- 自動同步總金額到旅程主文件 (Lazy Sync) ---
+        // Auto Sync Total Cost
         const currentTotal = expensesData.reduce((sum, item) => sum + Number(item.amount), 0);
-        // 如果目前旅程文件中的金額與計算出的不符，則更新資料庫
         if (currentTrip.totalCost !== currentTotal) {
             updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'trips', currentTrip.id), {
                 totalCost: currentTotal
@@ -367,8 +382,6 @@ export default function TravelPlanner() {
   };
 
   const scheduledDays = calculateSchedule(stops);
-
-  // 計算總花費
   const totalExpense = expenses.reduce((sum, item) => sum + Number(item.amount), 0);
 
   // --- Actions ---
@@ -437,7 +450,7 @@ export default function TravelPlanner() {
       let finalAmount = Number(data.amount);
       let finalNotes = data.notes;
 
-      // 匯率轉換邏輯
+      // 匯率轉換
       if (data.currency === 'JPY') {
           const rate = await fetchExchangeRate();
           const twdAmount = Math.round(finalAmount * rate);
@@ -445,24 +458,37 @@ export default function TravelPlanner() {
           finalAmount = twdAmount;
       }
 
-      // 1. 新增支出到子集合
-      await setDoc(doc(collection(db, 'artifacts', appId, 'users', user.uid, `trips/${currentTrip.id}/expenses`)), {
+      const payload = {
           amount: finalAmount,
           currency: 'TWD', 
           date: data.date,
           category: data.category,
           notes: finalNotes,
-          createdAt: Date.now()
-      });
-      
-      // 2. 更新父文件總金額 (透過 onSnapshot 自動同步，或可在此強制更新)
-      // 這裡依賴 onSnapshot 的 Lazy Sync 比較簡單，但為了即時性，我們也可以直接加
-      const newTotal = totalExpense + finalAmount;
-      await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'trips', currentTrip.id), {
-          totalCost: newTotal
-      });
+      };
+
+      if (editingExpense) {
+          // 編輯模式：更新現有文件
+          await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, `trips/${currentTrip.id}/expenses`, editingExpense.id), payload, { merge: true });
+          
+          // 更新總金額 (先減去舊的，再加上新的)
+          const diff = finalAmount - editingExpense.amount;
+          const newTotal = totalExpense + diff;
+           await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'trips', currentTrip.id), {
+              totalCost: newTotal
+          });
+      } else {
+          // 新增模式
+          payload.createdAt = Date.now();
+          await setDoc(doc(collection(db, 'artifacts', appId, 'users', user.uid, `trips/${currentTrip.id}/expenses`)), payload);
+          
+          const newTotal = totalExpense + finalAmount;
+          await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'trips', currentTrip.id), {
+              totalCost: newTotal
+          });
+      }
 
       setIsExpenseModalOpen(false);
+      setEditingExpense(null);
   };
 
   const handleDeleteExpense = async (id) => {
@@ -491,7 +517,6 @@ export default function TravelPlanner() {
     let text = `【${currentTrip.title}】\n`;
     text += `日期：${currentTrip.date} (共 ${currentTrip.durationDays} 天)\n`;
     text += `總花費：NT$ ${totalExpense.toLocaleString()}\n\n`;
-    
     Object.keys(scheduledDays).sort((a,b)=>a-b).forEach(dayNum => {
         const day = scheduledDays[dayNum];
         text += `=== 第 ${dayNum} 天 (${day.displayDate}) ===\n`;
@@ -523,7 +548,6 @@ export default function TravelPlanner() {
     setIsSubmitting(true); 
     try {
         const newDoc = doc(collection(db, 'artifacts', appId, 'users', user.uid, 'trips'));
-        // 新增 trip 時，初始化 totalCost 為 0
         await setDoc(newDoc, { title: newTripTitle, date: newTripDate, durationDays: newTripDuration, startTime: '08:00', totalCost: 0, createdAt: Date.now() });
         setNewTripTitle(''); setNewTripDate(''); setIsTripModalOpen(false);
     } catch (error) { alert(error.message); } finally { setIsSubmitting(false); }
@@ -548,6 +572,12 @@ export default function TravelPlanner() {
     const prevStop = stopIndex > 0 ? stops[stopIndex - 1] : null;
     setEditingTransport({ ...stop, prevStopName: prevStop ? prevStop.name : null }); 
     setIsTransportModalOpen(true);
+  };
+
+  // 開啟編輯支出的 Modal
+  const openEditExpenseModal = (expense) => {
+      setEditingExpense(expense);
+      setIsExpenseModalOpen(true);
   };
 
   useEffect(() => { setSelectedDay('All'); }, [currentTrip]);
@@ -590,10 +620,10 @@ export default function TravelPlanner() {
                   </button>
               </div>
 
-              {/* 修改重點：在首頁卡片顯示總花費 */}
               <div className="mt-4 pt-4 border-t border-[#f4f1ea] flex items-center justify-between">
                   <div className="text-xs text-[#9c9288] flex items-center gap-1">
-                      <Wallet className="w-3 h-3"/> 預算
+                      {/* 修改：將「預算」改為「支出」 */}
+                      <Wallet className="w-3 h-3"/> 支出
                   </div>
                   <div className="text-base font-bold text-[#e76f51] font-mono">
                       NT$ {(trip.totalCost || 0).toLocaleString()}
@@ -680,11 +710,10 @@ export default function TravelPlanner() {
             <h1 className="font-bold text-lg leading-tight truncate text-[#4a4238]">{currentTrip.title}</h1>
             <p className="text-xs text-[#9c9288] mt-0.5">{currentTrip.date}</p>
         </div>
-        {/* Header 總花費 (保留紅框部分不動) */}
-        <div className="text-right flex flex-col items-end mr-2">
-            <span className="text-[10px] text-[#9c9288] flex items-center gap-1"><Wallet className="w-3 h-3"/> 總花費</span>
-            <span className="text-sm font-bold text-[#e76f51] font-mono">NT$ {totalExpense.toLocaleString()}</span>
-        </div>
+        
+        {/* 修改：詳細頁 Header 移除總花費顯示 (圖3需求) */}
+        {/* 原本的 div block 已刪除 */}
+
         <button onClick={handleExport} className="p-2 text-[#8c9a8c] hover:bg-[#f4f1ea] rounded-full" title="匯出行程"><Share2 className="w-5 h-5" /></button>
         {selectedDay !== 'Budget' && (
             <button onClick={() => { setEditingStop(null); setIsStopModalOpen(true); }} className="bg-[#8c9a8c] text-white p-2 rounded-full shadow-md hover:bg-[#7b8c7c] transition-transform active:scale-95">
@@ -697,7 +726,6 @@ export default function TravelPlanner() {
       <div className="bg-[#fdfbf7] px-4 pt-3 pb-0 sticky top-[64px] z-10 overflow-x-auto scrollbar-hide border-b border-[#e6e2d3] touch-pan-x">
         <div className="flex space-x-1 min-w-max">
             <button onClick={() => setSelectedDay('All')} className={`py-2 px-4 text-sm rounded-t-lg transition-all border-t border-l border-r ${selectedDay === 'All' ? 'bg-white border-[#e6e2d3] text-[#4a4238] font-bold mb-[-1px] pb-3' : 'bg-[#f4f1ea] border-transparent text-[#9c9288] hover:bg-[#ebe7df]'}`}>總覽</button>
-            {/* 記帳分頁 */}
             <button onClick={() => setSelectedDay('Budget')} className={`py-2 px-4 text-sm rounded-t-lg transition-all border-t border-l border-r ${selectedDay === 'Budget' ? 'bg-white border-[#e6e2d3] text-[#4a4238] font-bold mb-[-1px] pb-3' : 'bg-[#f4f1ea] border-transparent text-[#9c9288] hover:bg-[#ebe7df]'}`}>
                 💰 記帳
             </button>
@@ -720,8 +748,6 @@ export default function TravelPlanner() {
         {selectedDay === 'Budget' ? (
             // --- 記帳介面 ---
             <div className="animate-in fade-in zoom-in-95 duration-300">
-                
-                {/* 修改重點：記帳頁面「上方」的大型總花費顯示 */}
                 <div className="bg-white rounded-xl p-6 shadow-sm border border-[#e6e2d3] mb-6 flex flex-col items-center justify-center">
                     <span className="text-sm text-[#9c9288] mb-1 font-bold tracking-widest">旅程總支出</span>
                     <span className="text-4xl font-extrabold text-[#e76f51] font-mono tracking-tight">
@@ -748,19 +774,26 @@ export default function TravelPlanner() {
                     ) : (
                         expenses
                         .sort((a,b) => expenseSort === 'category' ? a.category.localeCompare(b.category) : new Date(b.date) - new Date(a.date))
-                        .map(exp => (
+                        .map((exp, index, arr) => (
                             <div key={exp.id}>
+                                {/* 修改：類別標題放大並加粗 (圖2需求) */}
                                 {expenseSort === 'category' && (
-                                    <div className="text-xs text-[#b5a89e] mb-1 mt-2 font-bold ml-1">{exp.category}</div>
+                                    <div className="text-xl font-bold text-[#4a4238] mb-2 mt-4 ml-1 flex items-center gap-2">
+                                        {exp.category}
+                                    </div>
                                 )}
-                                <ExpenseItem expense={exp} onDelete={handleDeleteExpense} />
+                                <ExpenseItem 
+                                    expense={exp} 
+                                    onDelete={handleDeleteExpense} 
+                                    onEdit={openEditExpenseModal} // 傳入編輯函式
+                                />
                             </div>
                         ))
                     )}
                 </div>
 
                 <button 
-                    onClick={() => setIsExpenseModalOpen(true)} 
+                    onClick={() => { setEditingExpense(null); setIsExpenseModalOpen(true); }} 
                     className="fixed bottom-6 right-6 bg-[#e76f51] text-white p-4 rounded-full shadow-lg hover:bg-[#d05d41] transition-transform active:scale-95"
                 >
                     <Plus className="w-6 h-6" />
@@ -817,12 +850,13 @@ export default function TravelPlanner() {
         />
       )}
 
-      {/* Expense Modal */}
+      {/* Expense Modal (支援編輯) */}
       {isExpenseModalOpen && (
           <ExpenseModal 
             isOpen={isExpenseModalOpen}
             onClose={() => setIsExpenseModalOpen(false)}
             onSave={handleSaveExpense}
+            initialData={editingExpense} // 傳入舊資料
           />
       )}
 
@@ -838,13 +872,29 @@ export default function TravelPlanner() {
   );
 }
 
-// --- Expense Modal ---
-function ExpenseModal({ isOpen, onClose, onSave }) {
+// --- Expense Modal (Updated for Editing) ---
+function ExpenseModal({ isOpen, onClose, onSave, initialData }) {
     const [amount, setAmount] = useState('');
-    const [currency, setCurrency] = useState(''); 
+    const [currency, setCurrency] = useState('TWD'); 
     const [date, setDate] = useState(formatDate(new Date()));
     const [category, setCategory] = useState(''); 
     const [notes, setNotes] = useState('');
+
+    useEffect(() => {
+        if (initialData) {
+            setAmount(initialData.amount);
+            setCurrency('TWD'); // 編輯時預設顯示台幣，因為資料庫存的是轉換後的台幣
+            setDate(initialData.date);
+            setCategory(initialData.category);
+            setNotes(initialData.notes || '');
+        } else {
+            setAmount('');
+            setCurrency('TWD');
+            setDate(formatDate(new Date()));
+            setCategory('');
+            setNotes('');
+        }
+    }, [initialData]);
 
     const handleSubmit = () => {
         if (!amount || !currency || !category) {
@@ -860,7 +910,9 @@ function ExpenseModal({ isOpen, onClose, onSave }) {
         <div className="fixed inset-0 bg-[#4a4238]/40 flex items-end md:items-center justify-center z-50 animate-in fade-in duration-200 backdrop-blur-sm">
             <div className="bg-[#fdfbf7] w-full md:max-w-sm rounded-t-2xl md:rounded-2xl p-6 shadow-2xl border border-[#e6e2d3]">
                 <div className="flex justify-between items-center mb-6 border-b border-[#e6e2d3] pb-3">
-                    <h3 className="text-xl font-bold text-[#4a4238]">新增交易</h3>
+                    <h3 className="text-xl font-bold text-[#4a4238]">
+                        {initialData ? '編輯交易' : '新增交易'}
+                    </h3>
                     <button onClick={onClose} className="p-2 bg-[#f4f1ea] rounded-full hover:bg-[#ebe7df]"><X className="w-5 h-5 text-[#9c9288]" /></button>
                 </div>
 
@@ -885,7 +937,6 @@ function ExpenseModal({ isOpen, onClose, onSave }) {
                                 value={currency}
                                 onChange={e => setCurrency(e.target.value)}
                             >
-                                <option value="" disabled>選擇</option>
                                 <option value="TWD">台幣</option>
                                 <option value="JPY">日幣</option>
                             </select>
@@ -932,7 +983,9 @@ function ExpenseModal({ isOpen, onClose, onSave }) {
                     </div>
                 </div>
 
-                <button onClick={handleSubmit} className="w-full mt-6 p-3 bg-[#e76f51] text-white rounded-xl font-bold shadow-sm hover:bg-[#d05d41] transition-colors">儲存</button>
+                <button onClick={handleSubmit} className="w-full mt-6 p-3 bg-[#e76f51] text-white rounded-xl font-bold shadow-sm hover:bg-[#d05d41] transition-colors">
+                    {initialData ? '儲存變更' : '儲存'}
+                </button>
             </div>
         </div>
     );
