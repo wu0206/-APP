@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 
 const appId = 'travel-planner-v1'; 
-const APP_VERSION = 'v1.9'; 
+const APP_VERSION = 'v2.0'; 
 
 // --- Helper Functions ---
 const formatDate = (date) => {
@@ -43,12 +43,12 @@ const fetchExchangeRate = async () => {
 
 // --- Sub-Components (Cozy Style) ---
 
-// 修改：TransportItem 連結改為標準 Google Maps Directions API
-const TransportItem = ({ stop, prevStop, onEdit }) => {
+// 修改 1: TransportItem (列表介面) -> 改為「導航模式」 (當前位置 -> 目的地)
+const TransportItem = ({ stop, onEdit }) => {
   const getCurrentLocNavUrl = () => {
-    if (!stop || !prevStop) return '#';
-    // 使用 Google Maps Dir API 確保是點對點導航
-    return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(prevStop.name)}&destination=${encodeURIComponent(stop.name)}&travelmode=${stop.transportMode || 'driving'}`;
+    if (!stop) return '#';
+    // 不指定 origin，Google Maps 會預設使用使用者的「當前位置」
+    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(stop.name)}&travelmode=${stop.transportMode || 'driving'}`;
   };
 
   const handleEdit = (e) => {
@@ -804,7 +804,7 @@ export default function TravelPlanner() {
                                 {idx > 0 && stops.findIndex(s => s.id === stop.id) > 0 && (
                                     <TransportItem 
                                         stop={stop} 
-                                        prevStop={scheduledDays[dayNum].stops[idx-1]}
+                                        // 列表介面不傳 prevStop，讓 TransportItem 內部連結只產生 destination
                                         onEdit={openEditTransportModal} 
                                     />
                                 )}
@@ -1141,14 +1141,15 @@ function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDa
   );
 }
 
-// --- TransportModal ---
+// --- TransportModal (設定介面) ---
+// 修改 2: TransportModal -> 保持「規劃模式」 (上一個景點 -> 下一個景點)
 function TransportModal({ isOpen, onClose, onSave, initialData }) {
     const [mode, setMode] = useState(initialData?.transportMode || 'driving');
     const [minutes, setMinutes] = useState(initialData?.travelMinutes || 30);
     const prevStopName = initialData?.prevStopName;
     const currentStopName = initialData?.name;
     
-    // 修改：使用標準 Google Maps Directions API 連結
+    // 保持使用標準 Google Maps Directions API 連結 (有 origin)
     const getGoogleMapsUrl = () => {
         if (!prevStopName || !currentStopName) return null;
         return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(prevStopName)}&destination=${encodeURIComponent(currentStopName)}&travelmode=${mode}`;
