@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 
 const appId = 'travel-planner-v1'; 
-const APP_VERSION = 'v1.7'; 
+const APP_VERSION = 'v1.8'; 
 
 // --- Helper Functions ---
 const formatDate = (date) => {
@@ -43,10 +43,12 @@ const fetchExchangeRate = async () => {
 
 // --- Sub-Components (Cozy Style) ---
 
-const TransportItem = ({ stop, onEdit }) => {
+// 修改：TransportItem 新增 prevStop 屬性以取得出發地
+const TransportItem = ({ stop, prevStop, onEdit }) => {
   const getCurrentLocNavUrl = () => {
-    if (!stop) return '#';
-    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(stop.name)}&travelmode=${stop.transportMode || 'driving'}`;
+    // 修正 Google Maps 路徑規劃連結格式
+    if (!stop || !prevStop) return '#';
+    return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(prevStop.name)}&destination=${encodeURIComponent(stop.name)}&travelmode=${stop.transportMode || 'driving'}`;
   };
 
   const handleEdit = (e) => {
@@ -159,7 +161,7 @@ const LocationItem = ({ stop, onEdit }) => {
   );
 };
 
-// --- Expense Component (Modified for Editing) ---
+// --- Expense Component ---
 const ExpenseItem = ({ expense, onDelete, onEdit }) => (
     <div className="bg-white p-4 rounded-xl border border-[#e6e2d3] shadow-sm mb-3 flex justify-between items-center relative overflow-hidden group">
         <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#8c9a8c]"></div>
@@ -186,7 +188,6 @@ const ExpenseItem = ({ expense, onDelete, onEdit }) => (
                     刪除
                 </button>
             </div>
-            {/* Mobile support: Always show delete/edit on touch might be better, strictly following mouse hover for now */}
             <div className="flex md:hidden gap-3 mt-1">
                 <button onClick={() => onEdit(expense)} className="text-[10px] text-[#8c9a8c]">編輯</button>
                 <button onClick={() => onDelete(expense.id)} className="text-[10px] text-red-300">刪除</button>
@@ -213,7 +214,7 @@ export default function TravelPlanner() {
   // Editing States
   const [editingStop, setEditingStop] = useState(null);
   const [editingTransport, setEditingTransport] = useState(null);
-  const [editingExpense, setEditingExpense] = useState(null); // 新增支出編輯狀態
+  const [editingExpense, setEditingExpense] = useState(null);
 
   // View States
   const [selectedDay, setSelectedDay] = useState('All');
@@ -450,7 +451,6 @@ export default function TravelPlanner() {
       let finalAmount = Number(data.amount);
       let finalNotes = data.notes;
 
-      // 匯率轉換
       if (data.currency === 'JPY') {
           const rate = await fetchExchangeRate();
           const twdAmount = Math.round(finalAmount * rate);
@@ -467,17 +467,13 @@ export default function TravelPlanner() {
       };
 
       if (editingExpense) {
-          // 編輯模式：更新現有文件
           await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, `trips/${currentTrip.id}/expenses`, editingExpense.id), payload, { merge: true });
-          
-          // 更新總金額 (先減去舊的，再加上新的)
           const diff = finalAmount - editingExpense.amount;
           const newTotal = totalExpense + diff;
            await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'trips', currentTrip.id), {
               totalCost: newTotal
           });
       } else {
-          // 新增模式
           payload.createdAt = Date.now();
           await setDoc(doc(collection(db, 'artifacts', appId, 'users', user.uid, `trips/${currentTrip.id}/expenses`)), payload);
           
@@ -574,7 +570,6 @@ export default function TravelPlanner() {
     setIsTransportModalOpen(true);
   };
 
-  // 開啟編輯支出的 Modal
   const openEditExpenseModal = (expense) => {
       setEditingExpense(expense);
       setIsExpenseModalOpen(true);
@@ -622,7 +617,6 @@ export default function TravelPlanner() {
 
               <div className="mt-4 pt-4 border-t border-[#f4f1ea] flex items-center justify-between">
                   <div className="text-xs text-[#9c9288] flex items-center gap-1">
-                      {/* 修改：將「預算」改為「支出」 */}
                       <Wallet className="w-3 h-3"/> 支出
                   </div>
                   <div className="text-base font-bold text-[#e76f51] font-mono">
@@ -711,9 +705,6 @@ export default function TravelPlanner() {
             <p className="text-xs text-[#9c9288] mt-0.5">{currentTrip.date}</p>
         </div>
         
-        {/* 修改：詳細頁 Header 移除總花費顯示 (圖3需求) */}
-        {/* 原本的 div block 已刪除 */}
-
         <button onClick={handleExport} className="p-2 text-[#8c9a8c] hover:bg-[#f4f1ea] rounded-full" title="匯出行程"><Share2 className="w-5 h-5" /></button>
         {selectedDay !== 'Budget' && (
             <button onClick={() => { setEditingStop(null); setIsStopModalOpen(true); }} className="bg-[#8c9a8c] text-white p-2 rounded-full shadow-md hover:bg-[#7b8c7c] transition-transform active:scale-95">
@@ -776,7 +767,6 @@ export default function TravelPlanner() {
                         .sort((a,b) => expenseSort === 'category' ? a.category.localeCompare(b.category) : new Date(b.date) - new Date(a.date))
                         .map((exp, index, arr) => (
                             <div key={exp.id}>
-                                {/* 修改：類別標題放大並加粗 (圖2需求) */}
                                 {expenseSort === 'category' && (
                                     <div className="text-xl font-bold text-[#4a4238] mb-2 mt-4 ml-1 flex items-center gap-2">
                                         {exp.category}
@@ -785,7 +775,7 @@ export default function TravelPlanner() {
                                 <ExpenseItem 
                                     expense={exp} 
                                     onDelete={handleDeleteExpense} 
-                                    onEdit={openEditExpenseModal} // 傳入編輯函式
+                                    onEdit={openEditExpenseModal} 
                                 />
                             </div>
                         ))
@@ -812,7 +802,12 @@ export default function TravelPlanner() {
                         {scheduledDays[dayNum].stops.map((stop, idx) => (
                             <div key={stop.id} className="relative z-10 mb-2">
                                 {idx > 0 && stops.findIndex(s => s.id === stop.id) > 0 && (
-                                    <TransportItem stop={stop} onEdit={openEditTransportModal} />
+                                    // 修改：傳入 prevStop (上一個地點) 以產生正確的導航連結
+                                    <TransportItem 
+                                        stop={stop} 
+                                        prevStop={scheduledDays[dayNum].stops[idx-1]}
+                                        onEdit={openEditTransportModal} 
+                                    />
                                 )}
                                 <LocationItem stop={stop} onEdit={(s) => { setEditingStop(s); setIsStopModalOpen(true); }} />
                             </div>
@@ -856,7 +851,7 @@ export default function TravelPlanner() {
             isOpen={isExpenseModalOpen}
             onClose={() => setIsExpenseModalOpen(false)}
             onSave={handleSaveExpense}
-            initialData={editingExpense} // 傳入舊資料
+            initialData={editingExpense} 
           />
       )}
 
@@ -872,7 +867,7 @@ export default function TravelPlanner() {
   );
 }
 
-// --- Expense Modal (Updated for Editing) ---
+// --- Expense Modal ---
 function ExpenseModal({ isOpen, onClose, onSave, initialData }) {
     const [amount, setAmount] = useState('');
     const [currency, setCurrency] = useState('TWD'); 
@@ -991,11 +986,10 @@ function ExpenseModal({ isOpen, onClose, onSave, initialData }) {
     );
 }
 
-// --- Modified StopModal (Split Hours/Minutes) ---
+// --- StopModal ---
 function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDate, tripDuration, selectedDay }) {
   const [name, setName] = useState(initialData?.name || '');
   
-  // 拆分小時與分鐘
   const initialHours = initialData ? Math.floor(initialData.stayDuration) : 1;
   const initialMinutes = initialData ? Math.round((initialData.stayDuration % 1) * 60) : 0;
   
@@ -1022,7 +1016,6 @@ function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDa
   }, [initialData, selectedDay, tripStartDate]);
 
   const handleSave = () => {
-      // 組合回 float
       const totalDuration = stayHours + (stayMinutes / 60);
       onSave({ 
           name, 
@@ -1100,7 +1093,6 @@ function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDa
                )}
           </div>
 
-          {/* 停留時間 (拆分輸入) */}
           <div>
             <label className="block text-sm font-bold text-[#6b615b] mb-1">預計停留</label>
             <div className="flex items-center gap-2">
@@ -1150,15 +1142,17 @@ function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDa
   );
 }
 
+// --- TransportModal ---
 function TransportModal({ isOpen, onClose, onSave, initialData }) {
     const [mode, setMode] = useState(initialData?.transportMode || 'driving');
     const [minutes, setMinutes] = useState(initialData?.travelMinutes || 30);
     const prevStopName = initialData?.prevStopName;
     const currentStopName = initialData?.name;
     
+    // 修正 Google Maps 連結，確保導向路徑規劃
     const getGoogleMapsUrl = () => {
         if (!prevStopName || !currentStopName) return null;
-        return `https://www.google.com/maps/dir/?api=1&origin=$?q=from:${encodeURIComponent(prevStopName)}+to:${encodeURIComponent(currentStopName)}&travelmode=${mode}`;
+        return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(prevStopName)}&destination=${encodeURIComponent(currentStopName)}&travelmode=${mode}`;
     };
     
     if (!isOpen) return null;
