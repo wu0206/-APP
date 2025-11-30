@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 
 const appId = 'travel-planner-v1'; 
-const APP_VERSION = 'v1.8'; 
+const APP_VERSION = 'v1.9'; 
 
 // --- Helper Functions ---
 const formatDate = (date) => {
@@ -43,11 +43,11 @@ const fetchExchangeRate = async () => {
 
 // --- Sub-Components (Cozy Style) ---
 
-// 修改：TransportItem 新增 prevStop 屬性以取得出發地
+// 修改：TransportItem 連結改為標準 Google Maps Directions API
 const TransportItem = ({ stop, prevStop, onEdit }) => {
   const getCurrentLocNavUrl = () => {
-    // 修正 Google Maps 路徑規劃連結格式
     if (!stop || !prevStop) return '#';
+    // 使用 Google Maps Dir API 確保是點對點導航
     return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(prevStop.name)}&destination=${encodeURIComponent(stop.name)}&travelmode=${stop.transportMode || 'driving'}`;
   };
 
@@ -802,7 +802,6 @@ export default function TravelPlanner() {
                         {scheduledDays[dayNum].stops.map((stop, idx) => (
                             <div key={stop.id} className="relative z-10 mb-2">
                                 {idx > 0 && stops.findIndex(s => s.id === stop.id) > 0 && (
-                                    // 修改：傳入 prevStop (上一個地點) 以產生正確的導航連結
                                     <TransportItem 
                                         stop={stop} 
                                         prevStop={scheduledDays[dayNum].stops[idx-1]}
@@ -1149,7 +1148,7 @@ function TransportModal({ isOpen, onClose, onSave, initialData }) {
     const prevStopName = initialData?.prevStopName;
     const currentStopName = initialData?.name;
     
-    // 修正 Google Maps 連結，確保導向路徑規劃
+    // 修改：使用標準 Google Maps Directions API 連結
     const getGoogleMapsUrl = () => {
         if (!prevStopName || !currentStopName) return null;
         return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(prevStopName)}&destination=${encodeURIComponent(currentStopName)}&travelmode=${mode}`;
