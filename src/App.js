@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 
 const appId = 'travel-planner-v1'; 
-const APP_VERSION = 'v2.0'; 
+const APP_VERSION = 'v2.1'; 
 
 // --- Helper Functions ---
 const formatDate = (date) => {
@@ -43,11 +43,10 @@ const fetchExchangeRate = async () => {
 
 // --- Sub-Components (Cozy Style) ---
 
-// 修改 1: TransportItem (列表介面) -> 改為「導航模式」 (當前位置 -> 目的地)
+// TransportItem (列表介面) -> 導航模式 (當前位置 -> 目的地)
 const TransportItem = ({ stop, onEdit }) => {
   const getCurrentLocNavUrl = () => {
     if (!stop) return '#';
-    // 不指定 origin，Google Maps 會預設使用使用者的「當前位置」
     return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(stop.name)}&travelmode=${stop.transportMode || 'driving'}`;
   };
 
@@ -793,7 +792,8 @@ export default function TravelPlanner() {
             // --- 行程介面 ---
             Object.keys(scheduledDays).filter(d => selectedDay === 'All' || Number(d) === selectedDay).sort((a,b)=>a-b).map(dayNum => (
                 <div key={dayNum} className="mb-8 animate-in slide-in-from-bottom-2 duration-500">
-                    <div className="py-2 mb-4 sticky top-0 z-0">
+                    {/* 修改重點：z-index 提升至 20，解決遮擋問題 */}
+                    <div className="py-2 mb-4 sticky top-0 z-20">
                         <h2 className="text-lg font-bold text-[#6b615b] flex items-center gap-2 bg-[#fdfbf7]/90 backdrop-blur-sm w-fit px-3 py-1 rounded-lg border border-[#e6e2d3]">
                             <Calendar className="w-4 h-4 text-[#8c9a8c]" /> {scheduledDays[dayNum].displayDate} 
                         </h2>
@@ -804,7 +804,7 @@ export default function TravelPlanner() {
                                 {idx > 0 && stops.findIndex(s => s.id === stop.id) > 0 && (
                                     <TransportItem 
                                         stop={stop} 
-                                        // 列表介面不傳 prevStop，讓 TransportItem 內部連結只產生 destination
+                                        // 列表介面不傳 prevStop，讓 TransportItem 內部連結只產生 destination (導航模式)
                                         onEdit={openEditTransportModal} 
                                     />
                                 )}
@@ -1142,7 +1142,7 @@ function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDa
 }
 
 // --- TransportModal (設定介面) ---
-// 修改 2: TransportModal -> 保持「規劃模式」 (上一個景點 -> 下一個景點)
+// 規劃模式 (上一個景點 -> 下一個景點)
 function TransportModal({ isOpen, onClose, onSave, initialData }) {
     const [mode, setMode] = useState(initialData?.transportMode || 'driving');
     const [minutes, setMinutes] = useState(initialData?.travelMinutes || 30);
