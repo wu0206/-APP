@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 
 const appId = 'travel-planner-v1'; 
-const APP_VERSION = 'v2.1'; 
+const APP_VERSION = 'v2.2'; 
 
 // --- Helper Functions ---
 const formatDate = (date) => {
@@ -43,7 +43,7 @@ const fetchExchangeRate = async () => {
 
 // --- Sub-Components (Cozy Style) ---
 
-// TransportItem (列表介面) -> 導航模式 (當前位置 -> 目的地)
+// TransportItem (列表介面) -> 導航模式
 const TransportItem = ({ stop, onEdit }) => {
   const getCurrentLocNavUrl = () => {
     if (!stop) return '#';
@@ -697,7 +697,8 @@ export default function TravelPlanner() {
   // --- Render (Details View) ---
   return (
     <div className="min-h-screen bg-[#fdfbf7] flex flex-col font-sans text-[#4a4238]">
-      <header className="bg-white px-4 py-3 shadow-sm sticky top-0 z-20 flex items-center gap-3 pt-safe border-b border-[#e6e2d3]">
+      {/* 修改重點：Main Header 提升至 z-40，確保最高層級 */}
+      <header className="bg-white px-4 py-3 shadow-sm sticky top-0 z-40 flex items-center gap-3 pt-safe border-b border-[#e6e2d3]">
         <button onClick={() => setCurrentTrip(null)} className="p-2 hover:bg-[#f4f1ea] rounded-full transition-colors"><ArrowRight className="w-6 h-6 rotate-180 text-[#8d837a]" /></button>
         <div className="flex-1 overflow-hidden">
             <h1 className="font-bold text-lg leading-tight truncate text-[#4a4238]">{currentTrip.title}</h1>
@@ -712,8 +713,8 @@ export default function TravelPlanner() {
         )}
       </header>
       
-      {/* Day Tabs */}
-      <div className="bg-[#fdfbf7] px-4 pt-3 pb-0 sticky top-[64px] z-10 overflow-x-auto scrollbar-hide border-b border-[#e6e2d3] touch-pan-x">
+      {/* 修改重點：Tabs 提升至 z-30，確保蓋過下方行程內容 (z-10, z-20) */}
+      <div className="bg-[#fdfbf7] px-4 pt-3 pb-0 sticky top-[64px] z-30 overflow-x-auto scrollbar-hide border-b border-[#e6e2d3] touch-pan-x">
         <div className="flex space-x-1 min-w-max">
             <button onClick={() => setSelectedDay('All')} className={`py-2 px-4 text-sm rounded-t-lg transition-all border-t border-l border-r ${selectedDay === 'All' ? 'bg-white border-[#e6e2d3] text-[#4a4238] font-bold mb-[-1px] pb-3' : 'bg-[#f4f1ea] border-transparent text-[#9c9288] hover:bg-[#ebe7df]'}`}>總覽</button>
             <button onClick={() => setSelectedDay('Budget')} className={`py-2 px-4 text-sm rounded-t-lg transition-all border-t border-l border-r ${selectedDay === 'Budget' ? 'bg-white border-[#e6e2d3] text-[#4a4238] font-bold mb-[-1px] pb-3' : 'bg-[#f4f1ea] border-transparent text-[#9c9288] hover:bg-[#ebe7df]'}`}>
@@ -792,7 +793,6 @@ export default function TravelPlanner() {
             // --- 行程介面 ---
             Object.keys(scheduledDays).filter(d => selectedDay === 'All' || Number(d) === selectedDay).sort((a,b)=>a-b).map(dayNum => (
                 <div key={dayNum} className="mb-8 animate-in slide-in-from-bottom-2 duration-500">
-                    {/* 修改重點：z-index 提升至 20，解決遮擋問題 */}
                     <div className="py-2 mb-4 sticky top-0 z-20">
                         <h2 className="text-lg font-bold text-[#6b615b] flex items-center gap-2 bg-[#fdfbf7]/90 backdrop-blur-sm w-fit px-3 py-1 rounded-lg border border-[#e6e2d3]">
                             <Calendar className="w-4 h-4 text-[#8c9a8c]" /> {scheduledDays[dayNum].displayDate} 
@@ -804,7 +804,6 @@ export default function TravelPlanner() {
                                 {idx > 0 && stops.findIndex(s => s.id === stop.id) > 0 && (
                                     <TransportItem 
                                         stop={stop} 
-                                        // 列表介面不傳 prevStop，讓 TransportItem 內部連結只產生 destination (導航模式)
                                         onEdit={openEditTransportModal} 
                                     />
                                 )}
