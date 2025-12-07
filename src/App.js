@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 
 const appId = 'travel-planner-v1'; 
-const APP_VERSION = 'v2.3'; 
+const APP_VERSION = 'v2.4'; 
 
 // --- Helper Functions ---
 const formatDate = (date) => {
@@ -317,14 +317,11 @@ export default function TravelPlanner() {
     for (let i = 0; i < tripStops.length; i++) {
       const stop = tripStops[i];
       
-      // 修改：優先判斷日期是否需要重置
-      // 如果行程有指定 fixedDate，且目前的累積時間已經跑到別天去了，強制拉回 fixedDate 的早上
+      // 日期強制校正邏輯 (v2.3)
       if (stop.fixedDate) {
           const currentAccumulatedDate = formatDate(new Date(currentTimeMs));
-          // 如果計算出的日期 不等於 用戶指定的日期
           if (currentAccumulatedDate !== stop.fixedDate) {
               const [ty, tm, td] = stop.fixedDate.split('-').map(Number);
-              // 重置為當天早上 08:00 (預設)
               currentTimeMs = new Date(ty, tm - 1, td, 8, 0, 0).getTime();
           }
       }
@@ -334,10 +331,6 @@ export default function TravelPlanner() {
           const [fh, fm] = stop.fixedTime.split(':').map(Number);
           currentTimeMs = new Date(y, m - 1, d, fh, fm).getTime();
       } else if (i > 0) {
-        // 如果不是固定時間，才加交通時間。
-        // 但注意：如果剛發生「日期強制跳轉」，這裡的 travelMinutes 可能會加在 08:00 之後
-        // 為了簡單起見，如果發生了跨日重置，通常視為當天第一個行程，交通時間可能不適用或視為從飯店出發
-        // 這裡暫時保留相加，因為使用者可能希望計算「從飯店到景點」
         const travelMinutes = stop.travelMinutes || 30;
         currentTimeMs += travelMinutes * 60000;
       }
@@ -351,7 +344,6 @@ export default function TravelPlanner() {
       const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
       let currentDayNum = diffDays + 1;
 
-      // 自動換日邏輯 (僅在沒有指定 fixedDate 的情況下才依賴這個自動overflow，或者作為輔助)
       if (!stop.isFixedTime && currentDayNum <= tripDuration) {
         if (arrivalTime.getHours() >= 22) {
             currentDayNum++;
@@ -402,8 +394,6 @@ export default function TravelPlanner() {
   // --- Actions ---
   const handleSaveStop = async (stopData) => {
     const stopsRef = collection(db, 'artifacts', appId, 'users', user.uid, `trips/${currentTrip.id}/stops`);
-    
-    // 這裡我們不再需要複雜的 "guess date" 邏輯，因為 stopData.fixedDate 已經是必填且由 Modal 傳入
     
     if (editingStop) {
         await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, `trips/${currentTrip.id}/stops`, editingStop.id), stopData, { merge: true });
@@ -553,7 +543,7 @@ export default function TravelPlanner() {
     return (
       <div className="min-h-screen bg-[#fdfbf7] pb-20 font-sans text-[#4a4238]">
         {/* Header */}
-        <header className="bg-[#e8e4d9] text-[#4a4238] p-4 shadow-sm sticky top-0 z-10 pt-safe flex justify-between items-center border-b border-[#dcd7c9]">
+        <header className="bg-[#e8e4d9] text-[#4a4238] p-4 shadow-sm sticky top-0 z-40 flex items-center gap-3 pt-safe border-b border-[#dcd7c9]">
           <h1 className="text-xl font-bold flex items-center gap-2 tracking-wide"><Coffee className="w-6 h-6 text-[#8c9a8c]" /> 旅程手帳</h1>
           
           <div>
@@ -669,41 +659,47 @@ export default function TravelPlanner() {
   // --- Render (Details View) ---
   return (
     <div className="min-h-screen bg-[#fdfbf7] flex flex-col font-sans text-[#4a4238]">
-      <header className="bg-white px-4 py-3 shadow-sm sticky top-0 z-40 flex items-center gap-3 pt-safe border-b border-[#e6e2d3]">
-        <button onClick={() => setCurrentTrip(null)} className="p-2 hover:bg-[#f4f1ea] rounded-full transition-colors"><ArrowRight className="w-6 h-6 rotate-180 text-[#8d837a]" /></button>
-        <div className="flex-1 overflow-hidden">
-            <h1 className="font-bold text-lg leading-tight truncate text-[#4a4238]">{currentTrip.title}</h1>
-            <p className="text-xs text-[#9c9288] mt-0.5">{currentTrip.date}</p>
-        </div>
-        
-        <button onClick={handleExport} className="p-2 text-[#8c9a8c] hover:bg-[#f4f1ea] rounded-full" title="匯出行程"><Share2 className="w-5 h-5" /></button>
-        {selectedDay !== 'Budget' && (
-            <button onClick={() => { setEditingStop(null); setIsStopModalOpen(true); }} className="bg-[#8c9a8c] text-white p-2 rounded-full shadow-md hover:bg-[#7b8c7c] transition-transform active:scale-95">
-                <Plus className="w-6 h-6" />
-            </button>
-        )}
-      </header>
       
-      {/* Day Tabs */}
-      <div className="bg-[#fdfbf7] px-4 pt-3 pb-0 sticky top-[64px] z-30 overflow-x-auto scrollbar-hide border-b border-[#e6e2d3] touch-pan-x">
-        <div className="flex space-x-1 min-w-max">
-            <button onClick={() => setSelectedDay('All')} className={`py-2 px-4 text-sm rounded-t-lg transition-all border-t border-l border-r ${selectedDay === 'All' ? 'bg-white border-[#e6e2d3] text-[#4a4238] font-bold mb-[-1px] pb-3' : 'bg-[#f4f1ea] border-transparent text-[#9c9288] hover:bg-[#ebe7df]'}`}>總覽</button>
-            <button onClick={() => setSelectedDay('Budget')} className={`py-2 px-4 text-sm rounded-t-lg transition-all border-t border-l border-r ${selectedDay === 'Budget' ? 'bg-white border-[#e6e2d3] text-[#4a4238] font-bold mb-[-1px] pb-3' : 'bg-[#f4f1ea] border-transparent text-[#9c9288] hover:bg-[#ebe7df]'}`}>
-                💰 記帳
-            </button>
-            {Array.from({ length: currentTrip.durationDays || 1 }).map((_, i) => {
-                const tabDate = new Date(currentTrip.date + 'T00:00:00'); 
-                const [y, m, d] = currentTrip.date.split('-').map(Number);
-                const loopDate = new Date(y, m - 1, d + i);
-                const dateStr = formatDate(loopDate);
+      {/* 修改重點：將 Header 和 Tabs 包在同一個 sticky 容器內 */}
+      <div className="sticky top-0 z-40 w-full bg-[#fdfbf7]">
+          
+          {/* Header */}
+          <header className="bg-white px-4 py-3 shadow-sm flex items-center gap-3 pt-safe border-b border-[#e6e2d3]">
+            <button onClick={() => setCurrentTrip(null)} className="p-2 hover:bg-[#f4f1ea] rounded-full transition-colors"><ArrowRight className="w-6 h-6 rotate-180 text-[#8d837a]" /></button>
+            <div className="flex-1 overflow-hidden">
+                <h1 className="font-bold text-lg leading-tight truncate text-[#4a4238]">{currentTrip.title}</h1>
+                <p className="text-xs text-[#9c9288] mt-0.5">{currentTrip.date}</p>
+            </div>
+            
+            <button onClick={handleExport} className="p-2 text-[#8c9a8c] hover:bg-[#f4f1ea] rounded-full" title="匯出行程"><Share2 className="w-5 h-5" /></button>
+            {selectedDay !== 'Budget' && (
+                <button onClick={() => { setEditingStop(null); setIsStopModalOpen(true); }} className="bg-[#8c9a8c] text-white p-2 rounded-full shadow-md hover:bg-[#7b8c7c] transition-transform active:scale-95">
+                    <Plus className="w-6 h-6" />
+                </button>
+            )}
+          </header>
+          
+          {/* Tabs */}
+          <div className="bg-[#fdfbf7] px-4 pt-3 pb-0 overflow-x-auto scrollbar-hide border-b border-[#e6e2d3] touch-pan-x">
+            <div className="flex space-x-1 min-w-max">
+                <button onClick={() => setSelectedDay('All')} className={`py-2 px-4 text-sm rounded-t-lg transition-all border-t border-l border-r ${selectedDay === 'All' ? 'bg-white border-[#e6e2d3] text-[#4a4238] font-bold mb-[-1px] pb-3' : 'bg-[#f4f1ea] border-transparent text-[#9c9288] hover:bg-[#ebe7df]'}`}>總覽</button>
+                <button onClick={() => setSelectedDay('Budget')} className={`py-2 px-4 text-sm rounded-t-lg transition-all border-t border-l border-r ${selectedDay === 'Budget' ? 'bg-white border-[#e6e2d3] text-[#4a4238] font-bold mb-[-1px] pb-3' : 'bg-[#f4f1ea] border-transparent text-[#9c9288] hover:bg-[#ebe7df]'}`}>
+                    💰 記帳
+                </button>
+                {Array.from({ length: currentTrip.durationDays || 1 }).map((_, i) => {
+                    const tabDate = new Date(currentTrip.date + 'T00:00:00'); 
+                    const [y, m, d] = currentTrip.date.split('-').map(Number);
+                    const loopDate = new Date(y, m - 1, d + i);
+                    const dateStr = formatDate(loopDate);
 
-                return (
-                    <button key={i+1} onClick={() => setSelectedDay(i+1)} className={`py-2 px-4 text-sm rounded-t-lg transition-all border-t border-l border-r ${selectedDay === i+1 ? 'bg-white border-[#e6e2d3] text-[#4a4238] font-bold mb-[-1px] pb-3' : 'bg-[#f4f1ea] border-transparent text-[#9c9288] hover:bg-[#ebe7df]'}`}>
-                        {formatTabDate(dateStr)}
-                    </button>
-                );
-            })}
-        </div>
+                    return (
+                        <button key={i+1} onClick={() => setSelectedDay(i+1)} className={`py-2 px-4 text-sm rounded-t-lg transition-all border-t border-l border-r ${selectedDay === i+1 ? 'bg-white border-[#e6e2d3] text-[#4a4238] font-bold mb-[-1px] pb-3' : 'bg-[#f4f1ea] border-transparent text-[#9c9288] hover:bg-[#ebe7df]'}`}>
+                            {formatTabDate(dateStr)}
+                        </button>
+                    );
+                })}
+            </div>
+          </div>
       </div>
       
       <main className="flex-1 p-4 pb-24 overflow-y-auto">
@@ -955,7 +951,7 @@ function ExpenseModal({ isOpen, onClose, onSave, initialData }) {
     );
 }
 
-// --- Modified StopModal (Date Separated) ---
+// --- StopModal ---
 function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDate, tripDuration, selectedDay }) {
   const [name, setName] = useState(initialData?.name || '');
   
@@ -966,9 +962,8 @@ function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDa
   const [stayMinutes, setStayMinutes] = useState(initialMinutes);
 
   const [notes, setNotes] = useState(initialData?.notes || '');
-  
-  // 初始化日期：如果有舊資料用舊的，沒有則根據當前頁籤(selectedDay)計算
-  const getInitialDate = () => {
+  const [isFixedTime, setIsFixedTime] = useState(initialData?.isFixedTime || false);
+  const [fixedDate, setFixedDate] = useState(() => {
       if (initialData?.fixedDate) return initialData.fixedDate;
       if (typeof selectedDay === 'number') {
           const [y, m, d] = tripStartDate.split('-').map(Number);
@@ -976,12 +971,7 @@ function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDa
           return formatDate(targetDate);
       }
       return tripStartDate;
-  };
-
-  const [fixedDate, setFixedDate] = useState(getInitialDate());
-  
-  // isFixedTime 現在只控制「時間」，不控制「日期」(日期變為必填/必選)
-  const [isFixedTime, setIsFixedTime] = useState(initialData?.isFixedTime || false);
+  });
   const [fixedTime, setFixedTime] = useState(initialData?.fixedTime || '08:00');
 
   const handleSave = () => {
@@ -990,9 +980,9 @@ function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDa
           name, 
           stayDuration: totalDuration, 
           notes, 
-          isFixedTime, // 只代表是否鎖定時間
-          fixedDate,   // 永遠保存日期
-          fixedTime: isFixedTime ? fixedTime : null, // 只有勾選時才存時間
+          isFixedTime, 
+          fixedDate, 
+          fixedTime: isFixedTime ? fixedTime : null,
           travelMinutes: initialData?.travelMinutes || 30,
           transportMode: initialData?.transportMode || 'driving'
       });
@@ -1020,7 +1010,6 @@ function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDa
         </div>
 
         <div className="space-y-5">
-          {/* 修改：日期選擇器獨立顯示 */}
           <div>
             <label className="block text-sm font-bold text-[#6b615b] mb-1">行程日期</label>
             <div className="relative">
@@ -1127,6 +1116,7 @@ function TransportModal({ isOpen, onClose, onSave, initialData }) {
     const prevStopName = initialData?.prevStopName;
     const currentStopName = initialData?.name;
     
+    // 保持規劃模式：上一個地點 -> 下一個地點
     const getGoogleMapsUrl = () => {
         if (!prevStopName || !currentStopName) return null;
         return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(prevStopName)}&destination=${encodeURIComponent(currentStopName)}&travelmode=${mode}`;
