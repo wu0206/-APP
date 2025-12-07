@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 
 const appId = 'travel-planner-v1'; 
-const APP_VERSION = 'v2.5'; 
+const APP_VERSION = 'v2.6'; 
 
 // --- Helper Functions ---
 const formatDate = (date) => {
@@ -43,17 +43,17 @@ const fetchExchangeRate = async () => {
 
 // --- Sub-Components (Cozy Style) ---
 
-// TransportItem (列表介面) -> 導航模式
 const TransportItem = ({ stop, onEdit }) => {
   const getCurrentLocNavUrl = () => {
     if (!stop) return '#';
+    // 導航模式：當前位置 -> 目的地
     return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(stop.name)}&travelmode=${stop.transportMode || 'driving'}`;
   };
 
   const handleEdit = (e) => {
     e.preventDefault(); 
     e.stopPropagation();
-    onEdit(); // 修改：不再傳遞參數，由父層控制
+    onEdit(stop);
   };
 
   return (
@@ -523,7 +523,6 @@ export default function TravelPlanner() {
     }
   };
 
-  // 修改：接收 specificPrevStop 參數，強制指定上一個地點
   const openEditTransportModal = (stop, specificPrevStop) => {
     setEditingTransport({ 
         ...stop, 
@@ -771,8 +770,6 @@ export default function TravelPlanner() {
                                 {idx > 0 && stops.findIndex(s => s.id === stop.id) > 0 && (
                                     <TransportItem 
                                         stop={stop} 
-                                        // 修改：直接傳入 "當天行程列表" 中的上一個景點 (scheduledDays[dayNum].stops[idx-1])
-                                        // 這樣可以強制鎖定 "視覺上" 的上一個景點，避免因為資料庫亂序而抓錯成第四天的行程
                                         onEdit={() => openEditTransportModal(stop, scheduledDays[dayNum].stops[idx-1])} 
                                     />
                                 )}
@@ -953,7 +950,7 @@ function ExpenseModal({ isOpen, onClose, onSave, initialData }) {
     );
 }
 
-// --- StopModal ---
+// --- StopModal (Modified Layout for "Specify Time") ---
 function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDate, tripDuration, selectedDay }) {
   const [name, setName] = useState(initialData?.name || '');
   
@@ -1036,31 +1033,25 @@ function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDa
             </div>
           </div>
 
-          <div className="border border-[#dcd7c9] rounded-xl p-3 bg-white">
-               <div className="flex items-center justify-between mb-2">
-                   <label className="text-sm font-bold text-[#6b615b] flex items-center gap-1">
-                        <Clock className="w-4 h-4" /> 指定時間
-                   </label>
-                   <input 
-                      type="checkbox" 
-                      checked={isFixedTime} 
-                      onChange={(e) => setIsFixedTime(e.target.checked)}
-                      className="w-5 h-5 accent-[#8c9a8c]"
-                   />
-               </div>
-               
-               {isFixedTime ? (
-                   <div className="animate-in slide-in-from-top-2">
-                       <input 
-                          type="time" 
-                          className="w-full p-2 border border-[#dcd7c9] rounded-lg text-sm bg-[#fdfbf7] text-[#4a4238]"
-                          value={fixedTime}
-                          onChange={(e) => setFixedTime(e.target.value)}
-                       />
-                   </div>
-               ) : (
-                   <p className="text-xs text-[#9c9288]">關閉時，時間將依據上個行程自動計算。</p>
-               )}
+          {/* 修改重點：統一「指定時間」樣式，使其不跑版 */}
+          <div>
+            <label className="block text-sm font-bold text-[#6b615b] mb-1">指定時間</label>
+            <div className={`flex items-center justify-between p-3 bg-white border border-[#dcd7c9] rounded-xl transition-all ${isFixedTime ? 'ring-2 ring-[#a3b18a]' : ''}`}>
+               <input 
+                  type="time" 
+                  className={`flex-1 bg-transparent outline-none text-[#4a4238] font-mono text-lg ${!isFixedTime && 'opacity-30 pointer-events-none grayscale'}`}
+                  value={fixedTime}
+                  onChange={(e) => setFixedTime(e.target.value)}
+                  disabled={!isFixedTime}
+               />
+               <input 
+                  type="checkbox" 
+                  checked={isFixedTime} 
+                  onChange={(e) => setIsFixedTime(e.target.checked)}
+                  className="w-6 h-6 accent-[#8c9a8c] ml-3"
+               />
+            </div>
+            {!isFixedTime && <p className="text-xs text-[#9c9288] mt-1 ml-1">未啟用時，時間將依據行程自動計算。</p>}
           </div>
 
           <div>
@@ -1112,15 +1103,13 @@ function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDa
   );
 }
 
-// --- TransportModal ---
-// 規劃模式：上一個地點 (prevStopName) -> 下一個地點 (currentStopName)
 function TransportModal({ isOpen, onClose, onSave, initialData }) {
     const [mode, setMode] = useState(initialData?.transportMode || 'driving');
     const [minutes, setMinutes] = useState(initialData?.travelMinutes || 30);
-    const prevStopName = initialData?.prevStopName; // 從父元件傳來的正確上一個地點
+    const prevStopName = initialData?.prevStopName;
     const currentStopName = initialData?.name;
     
-    // 保持使用標準 Google Maps Directions API 連結 (有 origin)
+    // 保持規劃模式：上一個地點 -> 下一個地點
     const getGoogleMapsUrl = () => {
         if (!prevStopName || !currentStopName) return null;
         return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(prevStopName)}&destination=${encodeURIComponent(currentStopName)}&travelmode=${mode}`;
