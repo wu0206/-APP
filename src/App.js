@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 
 const appId = 'travel-planner-v1'; 
-const APP_VERSION = 'v2.4'; 
+const APP_VERSION = 'v2.5'; 
 
 // --- Helper Functions ---
 const formatDate = (date) => {
@@ -43,17 +43,17 @@ const fetchExchangeRate = async () => {
 
 // --- Sub-Components (Cozy Style) ---
 
+// TransportItem (列表介面) -> 導航模式
 const TransportItem = ({ stop, onEdit }) => {
   const getCurrentLocNavUrl = () => {
     if (!stop) return '#';
-    // 導航模式：當前位置 -> 目的地
     return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(stop.name)}&travelmode=${stop.transportMode || 'driving'}`;
   };
 
   const handleEdit = (e) => {
     e.preventDefault(); 
     e.stopPropagation();
-    onEdit(stop);
+    onEdit(); // 修改：不再傳遞參數，由父層控制
   };
 
   return (
@@ -317,7 +317,6 @@ export default function TravelPlanner() {
     for (let i = 0; i < tripStops.length; i++) {
       const stop = tripStops[i];
       
-      // 日期強制校正邏輯 (v2.3)
       if (stop.fixedDate) {
           const currentAccumulatedDate = formatDate(new Date(currentTimeMs));
           if (currentAccumulatedDate !== stop.fixedDate) {
@@ -524,10 +523,12 @@ export default function TravelPlanner() {
     }
   };
 
-  const openEditTransportModal = (stop) => {
-    const stopIndex = stops.findIndex(s => s.id === stop.id);
-    const prevStop = stopIndex > 0 ? stops[stopIndex - 1] : null;
-    setEditingTransport({ ...stop, prevStopName: prevStop ? prevStop.name : null }); 
+  // 修改：接收 specificPrevStop 參數，強制指定上一個地點
+  const openEditTransportModal = (stop, specificPrevStop) => {
+    setEditingTransport({ 
+        ...stop, 
+        prevStopName: specificPrevStop ? specificPrevStop.name : null 
+    }); 
     setIsTransportModalOpen(true);
   };
 
@@ -660,7 +661,6 @@ export default function TravelPlanner() {
   return (
     <div className="min-h-screen bg-[#fdfbf7] flex flex-col font-sans text-[#4a4238]">
       
-      {/* 修改重點：將 Header 和 Tabs 包在同一個 sticky 容器內 */}
       <div className="sticky top-0 z-40 w-full bg-[#fdfbf7]">
           
           {/* Header */}
@@ -771,7 +771,9 @@ export default function TravelPlanner() {
                                 {idx > 0 && stops.findIndex(s => s.id === stop.id) > 0 && (
                                     <TransportItem 
                                         stop={stop} 
-                                        onEdit={openEditTransportModal} 
+                                        // 修改：直接傳入 "當天行程列表" 中的上一個景點 (scheduledDays[dayNum].stops[idx-1])
+                                        // 這樣可以強制鎖定 "視覺上" 的上一個景點，避免因為資料庫亂序而抓錯成第四天的行程
+                                        onEdit={() => openEditTransportModal(stop, scheduledDays[dayNum].stops[idx-1])} 
                                     />
                                 )}
                                 <LocationItem stop={stop} onEdit={(s) => { setEditingStop(s); setIsStopModalOpen(true); }} />
@@ -1110,13 +1112,15 @@ function StopModal({ isOpen, onClose, onSave, onDelete, initialData, tripStartDa
   );
 }
 
+// --- TransportModal ---
+// 規劃模式：上一個地點 (prevStopName) -> 下一個地點 (currentStopName)
 function TransportModal({ isOpen, onClose, onSave, initialData }) {
     const [mode, setMode] = useState(initialData?.transportMode || 'driving');
     const [minutes, setMinutes] = useState(initialData?.travelMinutes || 30);
-    const prevStopName = initialData?.prevStopName;
+    const prevStopName = initialData?.prevStopName; // 從父元件傳來的正確上一個地點
     const currentStopName = initialData?.name;
     
-    // 保持規劃模式：上一個地點 -> 下一個地點
+    // 保持使用標準 Google Maps Directions API 連結 (有 origin)
     const getGoogleMapsUrl = () => {
         if (!prevStopName || !currentStopName) return null;
         return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(prevStopName)}&destination=${encodeURIComponent(currentStopName)}&travelmode=${mode}`;
