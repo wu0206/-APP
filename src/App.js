@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 
 const appId = 'travel-planner-v1'; 
-const APP_VERSION = 'v2.6.2-force-continuity'; 
+const APP_VERSION = 'v2.6.3-auto-sort'; 
 
 // --- Helper Functions ---
 const formatDate = (date) => {
@@ -46,6 +46,7 @@ const fetchExchangeRate = async () => {
 const TransportItem = ({ stop, onEdit }) => {
   const getCurrentLocNavUrl = () => {
     if (!stop) return '#';
+    // 導航模式：當前位置 -> 目的地
     return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(stop.name)}&travelmode=${stop.transportMode || 'driving'}`;
   };
 
@@ -293,7 +294,7 @@ export default function TravelPlanner() {
     return () => { unsubStops(); unsubExpenses(); };
   }, [user, currentTrip]);
 
-  // --- Logic Functions (Fixed: Continuity Guard) ---
+  // --- Logic Functions (Modified: Auto-Sort) ---
   const calculateSchedule = (tripStops) => {
     if (!currentTrip || !tripStops.length || !currentTrip.date) return {};
     const startDateStr = currentTrip.date;
@@ -313,15 +314,27 @@ export default function TravelPlanner() {
 
     const daySchedules = {};
 
-    // 輔助函式：標準化日期字串 (移除空白、補零)
+    // 輔助函式：標準化日期字串
     const getNormalizedDateStr = (dateStr) => {
         if (!dateStr) return '';
         const [y, m, d] = dateStr.trim().split('-').map(Number);
         return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     };
 
-    for (let i = 0; i < tripStops.length; i++) {
-      const stop = tripStops[i];
+    // 關鍵修正：在計算前先依照「日期」進行排序
+    // 這能解決「中間穿插了第4天行程」導致第1天時間計算被打斷的問題
+    const sortedStops = [...tripStops].sort((a, b) => {
+        // 1. 優先比較日期
+        const dateA = getNormalizedDateStr(a.fixedDate || startDateStr);
+        const dateB = getNormalizedDateStr(b.fixedDate || startDateStr);
+        if (dateA !== dateB) return dateA.localeCompare(dateB);
+        
+        // 2. 日期相同時，依照原本的順序 (Order) 排列
+        return (a.order || 0) - (b.order || 0);
+    });
+
+    for (let i = 0; i < sortedStops.length; i++) {
+      const stop = sortedStops[i];
       
       // 1. 修正日期比對邏輯 (加入強制連續性檢查)
       if (stop.fixedDate) {
@@ -331,19 +344,16 @@ export default function TravelPlanner() {
           
           let isDateMismatch = normCurrent !== normFixed;
 
-          // --- 強制連續性檢查 (Continuity Guard) ---
-          // 只要上一站的日期與這一站設定的日期是同一天，就絕對不重置時間，強制接續計算。
-          // 這能解決因為字串比對微小誤差或時區運算導致的「明明同一天卻被斷開」的問題。
+          // 連續性保護：如果上一站跟這一站是同一天，強制視為相同
           if (isDateMismatch && i > 0) {
-              const prevStop = tripStops[i-1];
+              const prevStop = sortedStops[i-1];
               if (prevStop.fixedDate && getNormalizedDateStr(prevStop.fixedDate) === normFixed) {
-                  isDateMismatch = false; // 強制判定為沒問題
+                  isDateMismatch = false; 
               }
           }
 
           if (isDateMismatch) {
               const [ty, tm, td] = stop.fixedDate.split('-').map(Number);
-              // 只有在確認真的需要換天時，才重置為當天的早上開始時間
               const [startH, startM] = startTimeStr.split(':').map(Number);
               currentTimeMs = new Date(ty, tm - 1, td, startH, startM, 0).getTime();
           }
