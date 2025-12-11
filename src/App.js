@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 
 const appId = 'travel-planner-v1'; 
-const APP_VERSION = 'v2.6.1-fix'; 
+const APP_VERSION = 'v2.6.2-force-continuity'; 
 
 // --- Helper Functions ---
 const formatDate = (date) => {
@@ -46,7 +46,6 @@ const fetchExchangeRate = async () => {
 const TransportItem = ({ stop, onEdit }) => {
   const getCurrentLocNavUrl = () => {
     if (!stop) return '#';
-    // 導航模式：當前位置 -> 目的地
     return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(stop.name)}&travelmode=${stop.transportMode || 'driving'}`;
   };
 
@@ -294,7 +293,7 @@ export default function TravelPlanner() {
     return () => { unsubStops(); unsubExpenses(); };
   }, [user, currentTrip]);
 
-  // --- Logic Functions (Modified) ---
+  // --- Logic Functions (Fixed: Continuity Guard) ---
   const calculateSchedule = (tripStops) => {
     if (!currentTrip || !tripStops.length || !currentTrip.date) return {};
     const startDateStr = currentTrip.date;
@@ -314,26 +313,37 @@ export default function TravelPlanner() {
 
     const daySchedules = {};
 
-    // 輔助函式：標準化日期字串 (確保是 YYYY-MM-DD 格式，避免 1/10 vs 01/10 的差異)
+    // 輔助函式：標準化日期字串 (移除空白、補零)
     const getNormalizedDateStr = (dateStr) => {
         if (!dateStr) return '';
-        const [y, m, d] = dateStr.split('-').map(Number);
+        const [y, m, d] = dateStr.trim().split('-').map(Number);
         return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     };
 
     for (let i = 0; i < tripStops.length; i++) {
       const stop = tripStops[i];
       
-      // 1. 修正日期比對邏輯
+      // 1. 修正日期比對邏輯 (加入強制連續性檢查)
       if (stop.fixedDate) {
           const currentAccumulatedDate = formatDate(new Date(currentTimeMs));
+          const normCurrent = getNormalizedDateStr(currentAccumulatedDate);
+          const normFixed = getNormalizedDateStr(stop.fixedDate);
           
-          // 使用標準化後的字串進行比對，避免格式差異導致誤判為不同天
-          const isDateMismatch = getNormalizedDateStr(currentAccumulatedDate) !== getNormalizedDateStr(stop.fixedDate);
+          let isDateMismatch = normCurrent !== normFixed;
+
+          // --- 強制連續性檢查 (Continuity Guard) ---
+          // 只要上一站的日期與這一站設定的日期是同一天，就絕對不重置時間，強制接續計算。
+          // 這能解決因為字串比對微小誤差或時區運算導致的「明明同一天卻被斷開」的問題。
+          if (isDateMismatch && i > 0) {
+              const prevStop = tripStops[i-1];
+              if (prevStop.fixedDate && getNormalizedDateStr(prevStop.fixedDate) === normFixed) {
+                  isDateMismatch = false; // 強制判定為沒問題
+              }
+          }
 
           if (isDateMismatch) {
               const [ty, tm, td] = stop.fixedDate.split('-').map(Number);
-              // 只有在日期真的不同時，才重置為當天的早上開始時間
+              // 只有在確認真的需要換天時，才重置為當天的早上開始時間
               const [startH, startM] = startTimeStr.split(':').map(Number);
               currentTimeMs = new Date(ty, tm - 1, td, startH, startM, 0).getTime();
           }
