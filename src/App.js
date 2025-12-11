@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 
 const appId = 'travel-planner-v1'; 
-const APP_VERSION = 'v2.6'; 
+const APP_VERSION = 'v2.6.1-fix'; 
 
 // --- Helper Functions ---
 const formatDate = (date) => {
@@ -294,7 +294,7 @@ export default function TravelPlanner() {
     return () => { unsubStops(); unsubExpenses(); };
   }, [user, currentTrip]);
 
-  // --- Logic Functions ---
+  // --- Logic Functions (Modified) ---
   const calculateSchedule = (tripStops) => {
     if (!currentTrip || !tripStops.length || !currentTrip.date) return {};
     const startDateStr = currentTrip.date;
@@ -314,22 +314,38 @@ export default function TravelPlanner() {
 
     const daySchedules = {};
 
+    // 輔助函式：標準化日期字串 (確保是 YYYY-MM-DD 格式，避免 1/10 vs 01/10 的差異)
+    const getNormalizedDateStr = (dateStr) => {
+        if (!dateStr) return '';
+        const [y, m, d] = dateStr.split('-').map(Number);
+        return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    };
+
     for (let i = 0; i < tripStops.length; i++) {
       const stop = tripStops[i];
       
+      // 1. 修正日期比對邏輯
       if (stop.fixedDate) {
           const currentAccumulatedDate = formatDate(new Date(currentTimeMs));
-          if (currentAccumulatedDate !== stop.fixedDate) {
+          
+          // 使用標準化後的字串進行比對，避免格式差異導致誤判為不同天
+          const isDateMismatch = getNormalizedDateStr(currentAccumulatedDate) !== getNormalizedDateStr(stop.fixedDate);
+
+          if (isDateMismatch) {
               const [ty, tm, td] = stop.fixedDate.split('-').map(Number);
-              currentTimeMs = new Date(ty, tm - 1, td, 8, 0, 0).getTime();
+              // 只有在日期真的不同時，才重置為當天的早上開始時間
+              const [startH, startM] = startTimeStr.split(':').map(Number);
+              currentTimeMs = new Date(ty, tm - 1, td, startH, startM, 0).getTime();
           }
       }
 
+      // 2. 處理指定時間或交通時間累加
       if (stop.isFixedTime && stop.fixedDate && stop.fixedTime) {
           const [y, m, d] = stop.fixedDate.split('-').map(Number);
           const [fh, fm] = stop.fixedTime.split(':').map(Number);
           currentTimeMs = new Date(y, m - 1, d, fh, fm).getTime();
       } else if (i > 0) {
+        // 如果不是第一個行程，且沒有指定時間，則加上交通時間
         const travelMinutes = stop.travelMinutes || 30;
         currentTimeMs += travelMinutes * 60000;
       }
@@ -1126,7 +1142,7 @@ function TransportModal({ isOpen, onClose, onSave, initialData }) {
                     <button onClick={onClose} className="p-2 bg-[#f4f1ea] rounded-full hover:bg-[#ebe7df]"><X className="w-5 h-5 text-[#9c9288]" /></button>
                 </div>
                 <div className="mb-4">
-                     <div className="grid grid-cols-3 gap-3 mb-4">
+                      <div className="grid grid-cols-3 gap-3 mb-4">
                         <button onClick={() => setMode('driving')} className={`p-3 rounded-xl flex flex-col items-center gap-2 border transition-all ${mode === 'driving' ? 'border-[#8c9a8c] bg-[#f0f4f0] text-[#6b7c6b]' : 'border-[#e6e2d3] text-[#b5a89e]'}`}><Car className="w-6 h-6" /><span className="text-xs font-bold">開車</span></button>
                         <button onClick={() => setMode('transit')} className={`p-3 rounded-xl flex flex-col items-center gap-2 border transition-all ${mode === 'transit' ? 'border-[#8c9a8c] bg-[#f0f4f0] text-[#6b7c6b]' : 'border-[#e6e2d3] text-[#b5a89e]'}`}><Train className="w-6 h-6" /><span className="text-xs font-bold">大眾運輸</span></button>
                         <button onClick={() => setMode('walking')} className={`p-3 rounded-xl flex flex-col items-center gap-2 border transition-all ${mode === 'walking' ? 'border-[#8c9a8c] bg-[#f0f4f0] text-[#6b7c6b]' : 'border-[#e6e2d3] text-[#b5a89e]'}`}><Footprints className="w-6 h-6" /><span className="text-xs font-bold">步行</span></button>
