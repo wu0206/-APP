@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 
 const appId = 'travel-planner-v1'; 
-const APP_VERSION = 'v2.6.3-auto-sort'; 
+const APP_VERSION = 'v2.6.4-strict-sort'; // 版本號更新
 
 // --- Helper Functions ---
 const formatDate = (date) => {
@@ -294,7 +294,7 @@ export default function TravelPlanner() {
     return () => { unsubStops(); unsubExpenses(); };
   }, [user, currentTrip]);
 
-  // --- Logic Functions (Modified: Auto-Sort) ---
+  // --- Logic Functions (Modified: Strict Sort) ---
   const calculateSchedule = (tripStops) => {
     if (!currentTrip || !tripStops.length || !currentTrip.date) return {};
     const startDateStr = currentTrip.date;
@@ -321,15 +321,33 @@ export default function TravelPlanner() {
         return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     };
 
-    // 關鍵修正：在計算前先依照「日期」進行排序
-    // 這能解決「中間穿插了第4天行程」導致第1天時間計算被打斷的問題
+    // 關鍵修正：在計算前先依照「日期」和「指定時間」進行嚴謹排序
     const sortedStops = [...tripStops].sort((a, b) => {
-        // 1. 優先比較日期
         const dateA = getNormalizedDateStr(a.fixedDate || startDateStr);
         const dateB = getNormalizedDateStr(b.fixedDate || startDateStr);
-        if (dateA !== dateB) return dateA.localeCompare(dateB);
+
+        // 1. 優先比較日期
+        if (dateA !== dateB) {
+            return dateA.localeCompare(dateB);
+        }
+
+        // --- 處理同一天的行程排序 ---
         
-        // 2. 日期相同時，依照原本的順序 (Order) 排列
+        // 2. 處理指定時間 (Fixed Time) 的優先級
+        if (a.isFixedTime && b.isFixedTime) {
+            // 兩者都有指定時間：依照時間字串排序
+            return a.fixedTime.localeCompare(b.fixedTime);
+        }
+        if (a.isFixedTime) {
+            // 只有 A 有指定時間：A 應該優先於 B 
+            return -1; 
+        }
+        if (b.isFixedTime) {
+            // 只有 B 有指定時間：B 應該優先於 A
+            return 1; 
+        }
+
+        // 3. 都沒有指定時間：依照原本的建立順序 (Order) 排列
         return (a.order || 0) - (b.order || 0);
     });
 
@@ -352,6 +370,7 @@ export default function TravelPlanner() {
               }
           }
 
+          // 如果日期不符，則重設為該天的開始時間 (08:00 或設定的 startTime)
           if (isDateMismatch) {
               const [ty, tm, td] = stop.fixedDate.split('-').map(Number);
               const [startH, startM] = startTimeStr.split(':').map(Number);
@@ -513,8 +532,11 @@ export default function TravelPlanner() {
         const day = scheduledDays[dayNum];
         text += `=== 第 ${dayNum} 天 (${day.displayDate}) ===\n`;
         day.stops.forEach((stop, index) => {
-            if (index > 0 && stop.travelMinutes) {
-                text += `   ⬇️ (${stop.transportMode === 'walking' ? '步行' : stop.transportMode === 'transit' ? '搭車' : '開車'} ${stop.travelMinutes}分)\n`;
+            if (index > 0 && stops.findIndex(s => s.id === stop.id) > 0) { // 僅在非第一站時檢查
+                const prevStop = stops.find((_, i) => i === stops.findIndex(s => s.id === stop.id) - 1);
+                if (prevStop) {
+                    text += `   ⬇️ (${stop.transportMode === 'walking' ? '步行' : stop.transportMode === 'transit' ? '搭車' : '開車'} ${stop.travelMinutes}分) 前往 ${stop.name}\n`;
+                }
             }
             text += `● ${stop.calculatedArrival} - ${stop.calculatedDeparture} | ${stop.name}\n`;
             text += `   (停留 ${Number(stop.stayDuration).toFixed(1)}h)`;
